@@ -132,9 +132,20 @@ function checkSpeechSupport(){
   }
 }
 
+const SPEECH_ERRORS = {
+  'not-allowed': "Mikrofoni on estetty — salli mikrofonin käyttö selaimen asetuksista.",
+  'service-not-allowed': "Selain ei salli puheentunnistusta tällä sivulla.",
+  'audio-capture': "Mikrofonia ei löytynyt.",
+  'network': "Puheentunnistus vaatii verkkoyhteyden.",
+  'no-speech': "En kuullut mitään — yritä uudelleen tai kirjoita."
+};
+
 function startListening(){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!SR) return;
+  // Already listening: constructing a second recognizer over the live one and
+  // calling start() again throws InvalidStateError.
+  if(recognizer) return;
   const btn = document.getElementById('mic-btn');
   const hint = document.getElementById('mic-hint');
   recognizer = new SR();
@@ -149,14 +160,27 @@ function startListening(){
     const transcript = event.results[0][0].transcript;
     handleAnswer(transcript);
   };
-  recognizer.onerror = () => {
-    hint.textContent = "En kuullut kunnolla — yritä uudelleen tai kirjoita.";
+  // onerror is always followed by onend, which would reset the hint and hide the
+  // reason. Keep whatever the error handler wrote.
+  let errored = false;
+  recognizer.onerror = (event) => {
+    errored = true;
+    hint.textContent = SPEECH_ERRORS[event.error]
+      || "En kuullut kunnolla — yritä uudelleen tai kirjoita.";
   };
   recognizer.onend = () => {
+    recognizer = null;
     btn.classList.remove('listening');
-    hint.textContent = "Paina ja sano vastaus";
+    if(!errored) hint.textContent = "Paina ja sano vastaus";
   };
-  recognizer.start();
+
+  try{
+    recognizer.start();
+  } catch(e){
+    recognizer = null;
+    btn.classList.remove('listening');
+    hint.textContent = "Puheentunnistusta ei saatu käyntiin — kirjoita vastaus.";
+  }
 }
 
 function submitManual(){
