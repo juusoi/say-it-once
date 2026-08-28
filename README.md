@@ -40,6 +40,9 @@ python3 -m http.server 8000
 Speech-to-text is unreliable enough that the typed fallback is a first-class input, not an
 afterthought. Expect to use it.
 
+Note that the two ways of running it are **not** equivalent for testing purposes — see
+[TESTING.md](TESTING.md) before changing how the JS is loaded.
+
 ## Project structure
 
 ```
@@ -101,3 +104,13 @@ session.
   (*poro* is accepted as *pori*). It's a deliberate trade against STT noise.
 - **Fonts load from Google Fonts.** Offline, the page falls back to system sans-serif. Nothing
   else needs the network except speech recognition.
+
+Most of these are addressed, with trade-offs, in [ROADMAP.md](ROADMAP.md).
+
+## Working on it
+
+- [TESTING.md](TESTING.md) — the manual smoke test to run before pushing, and a note on what's
+  worth automating versus what genuinely isn't.
+- [ROADMAP.md](ROADMAP.md) — what to build next and why, plus what's deliberately out of scope.
+
+Work on a branch and open a PR; `main` is the published version.
