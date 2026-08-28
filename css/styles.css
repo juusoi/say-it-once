@@ -82,7 +82,11 @@
   .scoreboard{display:flex;flex-direction:column;gap:10px;}
   .player-card{display:flex;align-items:center;justify-content:space-between;background:var(--surface-2);border-radius:12px;padding:12px 14px;border:1px solid transparent;}
   .player-card.active{border-color:var(--ice);}
-  .player-card.eliminated{opacity:0.35;}
+  /* Dim eliminated players by colour, not opacity: opacity:0.35 dropped the name
+     well below AA contrast and made the scoreboard unreadable for those rows. */
+  .player-card.eliminated{background:transparent;border-color:var(--line);}
+  .player-card.eliminated .p-name{color:var(--cream-dim);font-weight:500;}
+  .player-card.eliminated .empty-chip{opacity:0.5;}
   .p-name{font-weight:600;font-size:14px;}
   .p-cards{display:flex;gap:4px;}
   .yellow-chip{width:14px;height:20px;border-radius:3px;background:var(--card-yellow);}

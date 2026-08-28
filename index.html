@@ -21,7 +21,7 @@
   <!-- SETUP -->
   <div id="setup-screen" class="panel">
     <h2 style="margin-top:0;font-size:16px;">Kategoria</h2>
-    <select id="category-select"></select>
+    <select id="category-select" aria-label="Kategoria"></select>
 
     <h2 style="font-size:16px;">Pelaajat</h2>
     <div id="player-inputs"></div>
@@ -40,8 +40,8 @@
       Rakenne: <code>[{"name": "...", "answers": [{"canonical": "...", "forms": ["taivutusmuoto1", ...]}]}]</code>.
       Muutokset elävät vain tämän istunnon ajan (ei tallennusta levylle) — max 10 kategoriaa on suositeltu tässä prototyypissä.
     </p>
-    <textarea id="admin-json"></textarea>
-    <div class="admin-error" id="admin-error"></div>
+    <textarea id="admin-json" aria-label="Kategoriat JSON-muodossa"></textarea>
+    <div class="admin-error" id="admin-error" role="alert"></div>
     <div class="row-between" style="margin-top:14px;">
       <button class="btn-ghost" onclick="closeAdmin()">Takaisin</button>
       <button class="btn-primary" onclick="saveAdmin()">Tallenna kategoriat</button>
@@ -53,13 +53,13 @@
     <div class="panel stage">
       <div class="turn-label">Vuorossa</div>
       <div class="turn-name" id="current-player-name">—</div>
-      <button id="mic-btn" class="mic-btn" onclick="startListening()">🎤</button>
-      <div class="hint" id="mic-hint">Paina ja sano vastaus</div>
+      <button id="mic-btn" class="mic-btn" onclick="startListening()" aria-label="Sano vastaus">🎤</button>
+      <div class="hint" id="mic-hint" aria-live="polite">Paina ja sano vastaus</div>
       <div class="manual-row">
-        <input type="text" id="manual-input" placeholder="...tai kirjoita tähän">
+        <input type="text" id="manual-input" placeholder="...tai kirjoita tähän" aria-label="Kirjoita vastaus">
         <button class="btn-ghost" onclick="submitManual()">OK</button>
       </div>
-      <div class="feedback" id="feedback"></div>
+      <div class="feedback" id="feedback" role="status" aria-live="polite"></div>
     </div>
     <div class="panel scoreboard" id="scoreboard"></div>
     <p class="limitation" id="game-limitation-note"></p>

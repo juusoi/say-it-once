@@ -31,6 +31,7 @@ function addPlayerInput(name=""){
   const remove = document.createElement('button');
   remove.className = 'remove-btn';
   remove.textContent = '✕';
+  remove.setAttribute('aria-label', 'Poista pelaaja');
   remove.addEventListener('click', () => row.remove());
 
   row.append(input, remove);
@@ -38,6 +39,14 @@ function addPlayerInput(name=""){
 }
 addPlayerInput(); addPlayerInput();
 renderCategorySelect();
+
+document.getElementById('manual-input').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter') submitManual();
+});
+
+// Run on load as well as at game start: the setup screen is the one place where
+// "your browser has no speech recognition" is useful before anyone commits to a game.
+checkSpeechSupport();
 
 function startGame(){
   selectedCategoryIndex = parseInt(document.getElementById('category-select').value, 10);
