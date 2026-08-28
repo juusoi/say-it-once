@@ -157,8 +157,7 @@ function startListening(){
   hint.textContent = "Kuuntelen...";
 
   recognizer.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    handleAnswer(transcript);
+    handleAnswer(pickBestAlternative(event.results[0]));
   };
   // onerror is always followed by onend, which would reset the hint and hide the
   // reason. Keep whatever the error handler wrote.
@@ -229,6 +228,17 @@ function matchAnswer(raw){
     }
   }
   return best;
+}
+
+// The recognizer is asked for maxAlternatives guesses, ranked by its own
+// confidence. Take the highest-ranked one that is actually a valid answer in this
+// category, and otherwise fall back to its top guess so that a rejection quotes
+// what the player was actually heard to say.
+function pickBestAlternative(result){
+  for(let i = 0; i < result.length; i++){
+    if(matchAnswer(result[i].transcript)) return result[i].transcript;
+  }
+  return result[0].transcript;
 }
 
 // ---------- GAME LOGIC ----------
