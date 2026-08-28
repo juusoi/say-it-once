@@ -22,8 +22,18 @@ function renderCategorySelect(){
 function addPlayerInput(name=""){
   const row = document.createElement('div');
   row.className = 'player-row';
-  row.innerHTML = `<input type="text" placeholder="Pelaajan nimi" value="${name}">
-    <button class="remove-btn" onclick="this.parentElement.remove()">✕</button>`;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Pelaajan nimi';
+  input.value = name;
+
+  const remove = document.createElement('button');
+  remove.className = 'remove-btn';
+  remove.textContent = '✕';
+  remove.addEventListener('click', () => row.remove());
+
+  row.append(input, remove);
   document.getElementById('player-inputs').appendChild(row);
 }
 addPlayerInput(); addPlayerInput();
@@ -274,8 +284,20 @@ function renderScoreboard(){
   players.forEach((p, idx) => {
     const row = document.createElement('div');
     row.className = 'player-card' + (idx===currentIndex && !p.eliminated ? ' active':'') + (p.eliminated ? ' eliminated':'');
-    const chips = [0,1].map(i => `<div class="${i < p.yellowCards ? 'yellow-chip' : 'empty-chip'}"></div>`).join('');
-    row.innerHTML = `<div class="p-name">${p.name}${p.eliminated ? ' — pois pelistä' : ''}</div><div class="p-cards">${chips}</div>`;
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'p-name';
+    nameEl.textContent = p.name + (p.eliminated ? ' — pois pelistä' : '');
+
+    const cardsEl = document.createElement('div');
+    cardsEl.className = 'p-cards';
+    for(let i=0;i<2;i++){
+      const chip = document.createElement('div');
+      chip.className = i < p.yellowCards ? 'yellow-chip' : 'empty-chip';
+      cardsEl.appendChild(chip);
+    }
+
+    row.append(nameEl, cardsEl);
     board.appendChild(row);
   });
 }
