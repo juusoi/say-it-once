@@ -49,12 +49,14 @@ function startGame(){
   document.getElementById('winner-screen').classList.add('hidden');
   document.getElementById('game-limitation-note').textContent =
     `Kategoria: ${CATEGORIES[selectedCategoryIndex].name}. Taivutusmuodot toimivat vain jos ne on lisätty admin-paneelissa — muuten sano perusmuoto.`;
+  clearFeedback();
   renderScoreboard();
   renderCurrentPlayer();
   checkSpeechSupport();
 }
 
 function resetGame(){
+  clearFeedback();
   document.getElementById('winner-screen').classList.add('hidden');
   document.getElementById('setup-screen').classList.remove('hidden');
   renderCategorySelect();
@@ -255,8 +257,15 @@ function checkGameOver(){
 
 function renderCurrentPlayer(){
   document.getElementById('current-player-name').textContent = players[currentIndex].name;
-  document.getElementById('feedback').textContent = '';
   renderScoreboard();
+}
+
+// Only ever cleared when a new game/turn cycle starts -- never on turn advance,
+// or the feedback for the answer just given would be wiped before it is read.
+function clearFeedback(){
+  const el = document.getElementById('feedback');
+  el.textContent = '';
+  el.className = 'feedback';
 }
 
 function renderScoreboard(){
