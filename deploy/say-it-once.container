@@ -53,8 +53,18 @@ Volume=say-it-once-config:/config
 
 [Service]
 Restart=always
-# Measured at ~12 MB serving this site. The cap is here so that on a 1 GB box
-# a runaway cannot take the host Caddy down with it.
+# The cap is here so that on a 1 GB box a runaway cannot take the host Caddy
+# down with it. 128M is ample, but the number `podman stats` reports will look
+# much closer to it than you expect -- measured on the published image:
+#
+#   anon   ~11 MB   the actual process memory
+#   file   ~47 MB   page cache for the caddy binary and the served files
+#   total  ~59 MB   which is what `podman stats` and memory.current show
+#
+# Only the ~11 MB is irreducible. Page cache is reclaimed under pressure long
+# before anything is OOM-killed, so ~59 MB against a 128M cap is not the 46%
+# headroom it appears to be. Do not raise this on the strength of that number
+# alone; check `memory.stat` and look at `anon` first.
 MemoryMax=128M
 
 [Install]
