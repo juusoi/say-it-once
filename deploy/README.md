@@ -28,6 +28,13 @@ degraded microphone — it has none. The host Caddy already terminates TLS for
 other sites here, so this costs nothing, but it does mean a real hostname is a
 hard prerequisite rather than a nicety.
 
+> **`game.example.com` throughout this document is a placeholder.** Substitute
+> the real hostname everywhere it appears — the DNS check, the Caddy site
+> block, the `preflight.sh` argument and the browser check. It is deliberately
+> a reserved `example.com` name (RFC 2606), so a line pasted without
+> substituting fails against a domain nobody owns rather than reaching a
+> stranger's server. The real hostname is intentionally not committed.
+
 ## Before you start
 
 Everything below runs **on the server**, as the normal (non-root) user that
@@ -105,7 +112,7 @@ follows the change on its own.
 ### DNS has to resolve here already
 
 ```sh
-getent hosts game.example.fi             # or: dig +short game.example.fi
+getent hosts game.example.com             # or: dig +short game.example.com
 curl -fsS https://ifconfig.me; echo      # compare
 ```
 
@@ -206,7 +213,7 @@ podman inspect --format '{{.State.Health.Status}}' systemd-say-it-once
 Do not replace the host Caddyfile — add to it:
 
 ```caddy
-game.example.fi {
+game.example.com {
 	reverse_proxy 127.0.0.1:8080
 }
 ```
@@ -278,7 +285,7 @@ assuming the setup took:
 
 ```sh
 ./preflight.sh                  # container, unit and timer
-./preflight.sh game.example.fi  # and the public URL
+./preflight.sh game.example.com  # and the public URL
 ```
 
 It exits non-zero if anything is wrong, and each line says what to do. It
@@ -304,7 +311,7 @@ that is the question it exists to answer.
 ### 8. Open it in a browser and say something
 
 The one thing `preflight.sh` cannot check is the thing the game is for. A 200
-from `https://game.example.fi/` proves the bytes are served; it does not prove
+from `https://game.example.com/` proves the bytes are served; it does not prove
 the browser will hand over a microphone. Open the site on a real device, start
 a round, and confirm speech recognition actually fires — see the smoke test in
 [TESTING.md](../TESTING.md).
