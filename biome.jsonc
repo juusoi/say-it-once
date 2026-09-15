@@ -1,0 +1,60 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
+  // JSONC rather than JSON so each decision below can say why it was made.
+  // Biome reads either.
+  "files": {
+    "includes": ["js/**/*.js", "test/**/*.js", "css/**/*.css", "*.jsonc"]
+  },
+
+  // Lint only. Enforcing a formatter would rewrite ~1300 lines across ~600
+  // lines of source -- including expanding css/styles.css from its dense
+  // one-rule-per-line style to four times the length -- for no defect caught.
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        // Suggests template literals over concatenation. Two of the four it
+        // flagged here would be actively worse: one wraps a regex full of
+        // `{0,3}` and `$`, and one wraps nested ternaries.
+        "useTemplate": "off",
+        // Flags a low-specificity selector appearing after a higher-specificity
+        // one for the same element (`.player-card.eliminated .p-name` then
+        // `.p-name`). Harmless and intentional here, and reordering the
+        // cascade risks exactly the visual regression TESTING.md checks for:
+        // the eliminated row must dim to muted text, not wash out.
+        "noDescendingSpecificity": "off"
+      },
+      "complexity": {
+        // `.hidden{display:none !important;}` is load-bearing -- it is how
+        // every screen transition hides a panel. Removing it would break the
+        // mechanism the whole smoke test exercises.
+        "noImportantStyles": "off"
+      }
+    }
+  },
+
+  "overrides": [
+    {
+      // Every button uses an inline `onclick=`, so the handlers are referenced
+      // from HTML that Biome does not parse. With this rule on it reports
+      // startGame, resetGame, openAdmin, saveAdmin and startListening as
+      // unused -- and marks them FIXABLE, so `--write` would delete all five
+      // and break every button in the game.
+      //
+      // Converting the handlers to addEventListener would make them genuinely
+      // referenced and let this come back on. That is queued in ROADMAP.md,
+      // where it is already justified by wanting to drop `'unsafe-inline'`
+      // from the CSP.
+      "includes": ["js/game.js"],
+      "linter": {
+        "rules": {
+          "correctness": { "noUnusedVariables": "off" }
+        }
+      }
+    }
+  ]
+}

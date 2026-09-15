@@ -22,9 +22,32 @@ Note the glob. `node --test test/` **fails** — Node resolves the directory as 
   canonicals, string `forms`, no form colliding with another answer's canonical, no
   `CITY_ALIASES` key missing from `CITY_LIST`.
 
-CI runs both on every pull request, plus `node --check` on each script, an image build (which
-runs `caddy validate`), and a check that the container serves all five files with the expected
-headers.
+## Linting
+
+Also no dependencies — Biome is a single pinned binary, so there is still no `package.json`,
+no lockfile and no `node_modules`:
+
+```sh
+npx --yes @biomejs/biome@2.5.13 ci --error-on-warnings .
+```
+
+**Lint only, no formatter.** Enforcing Biome's formatter would rewrite about 1300 lines across
+600 lines of source and expand `css/styles.css` to four times its length, for no defect
+caught. `biome.jsonc` says why, and says why three rules are disabled — read it before turning
+any of them back on, because two of the three protect behaviour the smoke test below checks.
+
+One trap worth knowing: **never run `biome lint --write` on `js/game.js`.** Every button uses
+an inline `onclick=`, which Biome does not parse, so it reports `startGame`, `resetGame`,
+`openAdmin`, `saveAdmin` and `startListening` as unused — and marks them fixable. `--write`
+would delete all five and break every button. The rule is disabled for that one file.
+
+`actionlint` lints the workflow files and shellchecks their embedded `run:` scripts. It has
+already earned its place here once, catching a `grep -q … && exit 1` that would have failed
+CI on its own success path.
+
+CI runs all of the above on every pull request, plus `node --check` on each script, an image
+build (which runs `caddy validate`), and a check that the container serves all five files with
+the expected headers.
 
 ## Running it
 
@@ -162,6 +185,7 @@ zero-dependency, double-click-to-play property survived intact.
 ## Before you push
 
 - `node --test test/*.test.js` passes.
+- `npx --yes @biomejs/biome@2.5.13 ci --error-on-warnings .` is clean.
 - Run the smoke test above from `file://`, in Chrome.
 - Check the console is clean, apart from the known `/favicon.ico` 404.
 - If you touched `deploy/Caddyfile`, `Containerfile` or anything under `.github/`, run the
