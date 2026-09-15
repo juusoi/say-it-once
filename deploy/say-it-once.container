@@ -29,12 +29,11 @@ Wants=network-online.target
 # the Release workflow -- it re-tags, so nothing is rebuilt and nothing here
 # changes; see "Rolling back" in README.md. Nothing in the runbook should ever
 # have you edit this line.
-#
-# deploy/preflight.sh fails if this invariant is broken.
 Image=ghcr.io/juusoi/say-it-once:latest
 
-# Without this, nothing ever updates. preflight.sh reads the value with a
-# leading anchor, so a commented-out line correctly reads as absent.
+# Without this, nothing ever updates -- and it fails silently, so the only
+# symptom is that a merge to main never shows up. `podman auto-update
+# --dry-run` listing this container is how you confirm it is in effect.
 AutoUpdate=registry
 
 # Loopback only. The host Caddy terminates TLS and reverse-proxies to this;

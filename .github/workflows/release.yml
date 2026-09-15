@@ -91,7 +91,7 @@ jobs:
           # to exist and has to move. Never put the sha- tag in a Quadlet
           # unit: it always resolves to the same digest, so auto-update has
           # nothing to notice. It identifies a build and is what a rollback
-          # re-tags from -- deploy/preflight.sh fails if it ends up in the unit.
+          # re-tags from -- it is never what the server should point at.
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
