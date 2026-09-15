@@ -32,24 +32,29 @@ hard prerequisite rather than a nicety.
 
 Run as the normal (non-root) user that will own the container.
 
-### 1. Make the GHCR package public
+### 1. Confirm the GHCR package is public
 
-**Miss this and nothing else works.** GHCR packages default to private even
-for a public repository, so the server gets a 401 on every pull and
-`podman auto-update` quietly does nothing — no error on the box, no failed
-unit, just a version that never changes.
+**This is already done** — an anonymous manifest fetch returns `HTTP 200`, so
+the package is public and the server needs no credentials. It stays first in
+this list because it is the thing that breaks silently if it ever changes.
 
-After the first successful `Release` run, go to the package page on GitHub
-(*Packages* → `say-it-once` → *Package settings*) and set visibility to
-public. Then confirm from the server, with no credentials configured:
+GHCR packages default to private even for a public repository. When that
+happens the server gets a 401 on every pull and `podman auto-update` quietly
+does nothing — no error on the box, no failed unit, just a version that never
+changes. Confirm from the server, with no credentials configured:
 
 ```sh
 podman pull ghcr.io/juusoi/say-it-once:latest
 ```
 
-The alternative is `podman login ghcr.io` with a read-only PAT, which means a
-long-lived credential on the box and a token to rotate. Public is simpler and
-the source is public anyway.
+If that ever fails, set visibility on the package page (*Packages* →
+`say-it-once` → *Package settings*). The alternative is `podman login ghcr.io`
+with a read-only PAT, which means a long-lived credential on the box and a
+token to rotate. Public is simpler and the source is public anyway.
+
+`preflight.sh` covers this too: it runs `podman auto-update --dry-run`, which
+walks the same pull path the timer does, so a 401 surfaces as a failure rather
+than as silence.
 
 ### 2. Let the user's units run without a login session
 
@@ -71,6 +76,10 @@ systemctl --user status say-it-once
 
 Quadlet generates the systemd service from the `.container` file, so there is
 no unit to hand-write and no `podman generate systemd` output to keep in sync.
+
+Install it as committed and do not edit `Image=`. It has to stay a floating
+tag or the server stops receiving deploys — the reasoning is written out above
+that line in the unit itself, and step 7 checks it.
 
 Check it is up and healthy before touching Caddy:
 
@@ -149,9 +158,41 @@ systemctl --user daemon-reload
 systemctl --user enable --now podman-prune.timer
 ```
 
+### 7. Preflight
+
+Everything above fails quietly when it fails. Run the check rather than
+assuming the setup took:
+
+```sh
+./preflight.sh                  # container, unit and timer
+./preflight.sh game.example.fi  # and the public URL
+```
+
+It exits non-zero if anything is wrong, and each line says what to do. It
+asserts the things that otherwise produce no error anywhere:
+
+| It checks | Because otherwise |
+|---|---|
+| `Image=` is a floating tag | a `sha-` tag or digest can never trigger auto-update |
+| `AutoUpdate=registry` is set and not commented out | nothing ever updates |
+| the timer is enabled and active | nothing ever updates |
+| the timer is off the daily default | deploys land up to 24 h late *(warning)* |
+| linger is enabled | everything stops when you log out |
+| the unit is active and the container healthy | a bad image has nothing to roll back from |
+| `auto-update --dry-run` reports nothing pending | the running image is stale, or the package went private |
+| the published port serves 200 | serving is broken behind a working proxy |
+
+Without a hostname argument it does not touch the public URL, so a green run
+on its own does not prove the site is reachable from outside. It says so.
+
+Re-run it any time you are unsure whether the running version is current —
+that is the question it exists to answer.
+
 ## Verifying a deploy
 
-Merge something trivial to main, then on the server:
+`./preflight.sh` answers "is the running image current?" directly, and is the
+quickest check. To watch a specific deploy land, merge something trivial to
+main, then on the server:
 
 ```sh
 # Did the timer run, and did it see a new digest?
@@ -176,33 +217,51 @@ podman auto-update               # do it now
 
 ## Rolling back
 
-**Normal path** — `git revert`, merge to main, and the new image ships in
-about five minutes. Same mechanism as any other deploy, and it keeps the
-server's state and the repository's state identical.
+**None of these involve editing the unit file.** Earlier versions of this
+runbook told you to point `Image=` at a `sha-<commit>` tag; that works once and
+then stops the server receiving deploys for ever if you forget to undo it,
+because a `sha-` tag always resolves to the same digest and
+`AutoUpdate=registry` has nothing left to notice. The `sha-` tags exist to
+identify a build, not to deploy one.
 
-**Emergency path** — pin a specific build. Every release is also tagged
-`sha-<commit>`:
+**Durable path — `git revert`.** Revert, merge to main, and the new image
+ships in about five minutes. This is the one that keeps the server's state and
+the repository's state identical, and it is what you want in almost every
+case.
+
+**Fast path — republish an older commit.** `Release` accepts a manual dispatch
+with the commit to build, and moves `:latest` onto it. Nothing on the server
+changes:
 
 ```sh
-# in ~/.config/containers/systemd/say-it-once.container
-Image=ghcr.io/juusoi/say-it-once:sha-<commit>
-# and comment out AutoUpdate=registry, or the next timer run undoes this
+gh workflow run release.yml -f ref=<commit-sha>
+gh run watch "$(gh run list --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
 ```
 
-```sh
-systemctl --user daemon-reload
-systemctl --user restart say-it-once
-```
+Dispatch it from `main` and pass the target as `-f ref=…`, not with
+`--ref <sha>`: the dispatch API accepts only a branch or tag name for its own
+ref, and dispatching *at* an old commit also needs the workflow file to exist
+there.
 
-Remember to put `:latest` and `AutoUpdate=registry` back afterwards. A pinned
-unit silently stops receiving deploys, which is the failure mode that takes
-longest to notice.
+Two things to know before using it:
 
-**Automatic path** — if a new image starts but fails its health check, podman
-restores the previous one by itself. That is the whole reason the health check
-is declared in the Quadlet unit: podman builds OCI images by default and
-silently ignores a `HEALTHCHECK` instruction in the Containerfile, so putting
-it there would look like protection without being any.
+- **It is temporary.** `main` still holds the bad commit, so the next merge
+  publishes straight over your rollback. It buys time to write the revert; it
+  is not the revert.
+- **Check the Actions queue is empty first.** The `release` concurrency group
+  queues rather than cancels, so a push-triggered run already waiting will
+  execute after yours and republish what you just rolled away from.
+
+The run's step summary states which commit it built and, on a dispatch, that
+the rollback is temporary. CI runs against the commit being published, not
+against `main`.
+
+**Automatic path — a bad image never sticks.** If a new image starts but fails
+its health check, podman restores the previous one by itself. That is the whole
+reason the health check is declared in the Quadlet unit: podman builds OCI
+images by default and silently ignores a `HEALTHCHECK` instruction in the
+Containerfile, so putting it there would look like protection without being
+any.
 
 ## Testing the image locally
 

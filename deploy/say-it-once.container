@@ -14,10 +14,26 @@ After=network-online.target
 Wants=network-online.target
 
 [Container]
+# INVARIANT: this must stay a floating tag. Never a sha-<commit> tag, never a
+# digest.
+#
+# AutoUpdate=registry works by re-resolving *this tag name* and comparing the
+# digest it gets back against the running one. A sha- tag or a digest always
+# resolves to the same thing, so there is never anything to notice and the
+# server stops receiving deploys permanently -- with no error, no failed unit,
+# and nothing in the journal. The only symptom is that a merge to main never
+# shows up.
+#
+# The sha- tags the Release workflow publishes are for identifying a build,
+# not for deploying one. To roll back, republish an older commit onto :latest
+# with the Release workflow; see "Rolling back" in README.md. Nothing in the
+# runbook should ever have you edit this line.
+#
+# deploy/preflight.sh fails if this invariant is broken.
 Image=ghcr.io/juusoi/say-it-once:latest
 
-# Follow the moving :latest tag. This is what podman-auto-update.timer acts
-# on; pin a digest here and auto-update will never fire.
+# Without this, nothing ever updates. preflight.sh reads the value with a
+# leading anchor, so a commented-out line correctly reads as absent.
 AutoUpdate=registry
 
 # Loopback only. The host Caddy terminates TLS and reverse-proxies to this;
