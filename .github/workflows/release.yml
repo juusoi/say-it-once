@@ -4,25 +4,31 @@ on:
   push:
     branches: [main]
 
-  # Rolling back without touching the server. Dispatch this with an older
-  # commit and it rebuilds that code and moves :latest onto it; auto-update
-  # picks it up on the next tick. Nothing on the box changes, so the floating
-  # tag stays floating -- see "Rolling back" in deploy/README.md.
+  # Rolling back without touching the server, and without rebuilding anything.
   #
-  # The target is an input rather than the dispatch ref because the dispatch
-  # API's own `ref` accepts only a branch or tag name, and dispatching *at* a
-  # ref also needs this file to exist on it. Both limitations bite exactly
-  # when you are in a hurry. Dispatch from main and pass the commit here.
+  # Every release publishes a sha-<commit> tag, so the image you want is
+  # already in the registry. This moves :latest onto it -- a registry-side
+  # manifest copy -- and auto-update picks it up on the next tick. Nothing on
+  # the box changes, so the floating tag stays floating. See "Rolling back" in
+  # deploy/README.md.
   #
-  # A dispatched rollback is TEMPORARY: main still holds the bad commit, so
-  # the next merge republishes it. It buys time; `git revert` is the fix.
+  # An earlier version of this rebuilt the old commit instead. That does not
+  # work: a dispatch checks out old code but runs ci.yml from main, because
+  # `uses: ./...` resolves at the caller's ref, so current CI steps run against
+  # a tree that lacks the config they need. Rolling back past the commit that
+  # added biome.jsonc failed on formatting for that exact reason. Re-tagging
+  # sidesteps it entirely, and is better anyway: the artefact was already
+  # CI-gated when it shipped, it is byte-identical to what ran before rather
+  # than a rebuild that might differ, and it is instant.
+  #
+  # A rollback here is TEMPORARY: main still holds the bad commit, so the next
+  # merge publishes over it. It buys time; `git revert` is the fix.
   workflow_dispatch:
     inputs:
-      ref:
-        description: Commit SHA or ref to build and publish as :latest
+      sha:
+        description: Commit to move :latest onto (short or full SHA, tag, or branch). Must already have been released.
         type: string
-        required: false
-        default: ''
+        required: true
 
 permissions:
   contents: read
@@ -30,7 +36,7 @@ permissions:
 # One publish at a time, queued rather than cancelled, so two overlapping runs
 # cannot leave :latest pointing at the wrong build.
 #
-# Queueing has a consequence worth knowing before you dispatch a rollback: a
+# Queueing has a consequence worth knowing before you roll back: a
 # push-triggered release already in the queue will run *after* yours and
 # republish the commit you were rolling away from. Check the Actions queue is
 # empty first.
@@ -39,14 +45,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ---------------------------------------------------------------- on push
   # Depend on CI rather than running alongside it, so a broken commit cannot
   # publish an image that the server would then pull within five minutes.
   ci:
+    if: github.event_name == 'push'
     uses: ./.github/workflows/ci.yml
-    with:
-      ref: ${{ inputs.ref || '' }}
 
   image:
+    if: github.event_name == 'push'
     needs: ci
     runs-on: ubuntu-latest
     permissions:
@@ -56,14 +63,7 @@ jobs:
       # Pinned to commit SHAs, not tags -- see the note in ci.yml.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.ref || '' }}
           persist-credentials: false
-
-      # github.sha is the ref the workflow was dispatched *from*, which on a
-      # rollback is main rather than the commit being built. Resolve what was
-      # actually checked out, so the sha- tag never names the wrong code.
-      - id: built
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # The server is amd64. arm64 is built so the exact image that ships can
       # be pulled and smoke-tested on an Apple Silicon Mac.
@@ -90,26 +90,21 @@ jobs:
           # :latest is the moving tag `AutoUpdate=registry` follows, so it has
           # to exist and has to move. Never put the sha- tag in a Quadlet
           # unit: it always resolves to the same digest, so auto-update has
-          # nothing to notice. It is for identifying a build, not deploying
-          # one -- deploy/preflight.sh fails if it ends up in the unit.
+          # nothing to notice. It identifies a build and is what a rollback
+          # re-tags from -- deploy/preflight.sh fails if it ends up in the unit.
           tags: |
             ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:sha-${{ steps.built.outputs.sha }}
+            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       # The digest is what the server compares against, so print it: it is the
       # one value that tells you whether a deploy actually landed.
       - name: Summary
-        # Values come through env rather than being interpolated into the
-        # script. DISPATCH_REF is supplied by whoever dispatches the workflow,
-        # and `${{ }}` inside `run:` is textual substitution, so interpolating
-        # it directly would be a script-injection seam.
         env:
           REPO: ${{ github.repository }}
-          BUILT_SHA: ${{ steps.built.outputs.sha }}
+          BUILT_SHA: ${{ github.sha }}
           DIGEST: ${{ steps.build.outputs.digest }}
-          DISPATCH_REF: ${{ inputs.ref }}
         run: |
           {
             echo "Published \`ghcr.io/$REPO\`"
@@ -120,10 +115,110 @@ jobs:
             echo
             echo "The server picks this up within ~5 minutes via"
             echo "\`podman-auto-update.timer\`. See \`deploy/README.md\`."
-            if [ -n "$DISPATCH_REF" ]; then
-              echo
-              echo "> Republished from a dispatch, so this is a **temporary**"
-              echo "> rollback: \`main\` is unchanged and the next merge to it"
-              echo "> will publish over this. Use \`git revert\` to make it stick."
-            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ------------------------------------------------------------ on dispatch
+  # Moves :latest onto an already-published image. Builds nothing, so it does
+  # not need `ci`: the artefact it points at was CI-gated when it shipped, and
+  # only digests that were actually released can be selected.
+  retag:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # fetch-depth: 0 so a short SHA, tag or branch name resolves. The
+      # checkout is only used to turn the input into a full commit SHA; no
+      # code from it is built.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The input is supplied by whoever dispatches this, and `${{ }}` inside
+      # `run:` is textual substitution, so it goes through env rather than
+      # being interpolated into the script.
+      - name: Resolve the target commit
+        id: target
+        env:
+          TARGET: ${{ inputs.sha }}
+        run: |
+          # Accept either a bare commit-ish or a full sha-<commit> tag name.
+          case "$TARGET" in
+          sha-*) want=${TARGET#sha-} ;;
+          *) want=$TARGET ;;
+          esac
+
+          # --end-of-options stops an input beginning with "-" being read as a
+          # flag. ^{commit} rejects anything that is not a commit.
+          if ! full=$(git rev-parse --verify --end-of-options "$want^{commit}" 2>/dev/null); then
+            echo "::error::'$TARGET' is not a commit in this repository."
+            echo "Pass a commit SHA (short or full), a tag, or a branch name."
+            exit 1
+          fi
+
+          echo "resolved $TARGET -> $full"
+          echo "sha=$full" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Check the source exists BEFORE touching :latest, so a typo cannot
+      # damage the tag the server follows. A commit existing in git does not
+      # mean an image was published for it -- only the commits that triggered a
+      # Release have one -- so this is a separate, expected failure.
+      - name: Check the source image exists
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          src="ghcr.io/$REPO:sha-$SHA"
+          if ! docker buildx imagetools inspect "$src" >/dev/null 2>&1; then
+            echo "::error::No released image for $SHA ($src)."
+            echo "Only commits that triggered a Release have a sha- tag."
+            echo "List them with: gh run list --workflow=release.yml"
+            exit 1
+          fi
+          echo "source exists: $src"
+
+      # A single manifest-list source makes this a carbon copy, so :latest ends
+      # up on the exact index that shipped -- same digest, same two platforms,
+      # no rebuild.
+      - name: Move :latest onto it
+        id: retag
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          src="ghcr.io/$REPO:sha-$SHA"
+          dst="ghcr.io/$REPO:latest"
+          docker buildx imagetools create --tag "$dst" "$src"
+          digest=$(docker buildx imagetools inspect "$dst" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo ":latest is now $digest"
+
+      - name: Summary
+        env:
+          REPO: ${{ github.repository }}
+          REQUESTED: ${{ inputs.sha }}
+          SHA: ${{ steps.target.outputs.sha }}
+          DIGEST: ${{ steps.retag.outputs.digest }}
+        run: |
+          {
+            echo "Moved \`ghcr.io/$REPO:latest\` onto an earlier release"
+            echo
+            echo "- requested: \`$REQUESTED\`"
+            echo "- resolved: \`$SHA\`"
+            echo "- source: \`sha-$SHA\`"
+            echo "- digest now: \`$DIGEST\`"
+            echo
+            echo "Nothing was rebuilt: this is the image that already shipped"
+            echo "for that commit. The server picks it up within ~5 minutes."
+            echo
+            echo "> **Temporary.** \`main\` is unchanged, so the next merge to it"
+            echo "> publishes over this. Use \`git revert\` to make it stick."
           } >> "$GITHUB_STEP_SUMMARY"
