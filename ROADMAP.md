@@ -5,26 +5,31 @@ Nothing here is committed to — it's a menu with the trade-offs written down.
 
 ## Where it stands
 
-The game is playable end to end: setup, turns, yellow cards, elimination, winner. The initial
-repo pass fixed the bugs that made it feel broken — feedback that was wiped before anyone
-could read it, a mic button that jammed on a second press, error messages that hid the actual
-reason. What's left is less about defects and more about **content and reach**.
+The game is playable end to end: setup, turns, yellow cards, elimination, winner. It is
+deployed publicly — a container image built by GitHub Actions, served by Caddy, pulled by the
+server via `podman auto-update`. See [deploy/README.md](deploy/README.md).
 
-Two things dominate everything below: there are effectively **one and a half categories**, and
-**52 of the 72 cities only accept their base form**. Both are content problems, and both hurt
-the game more than any architectural concern does.
+The first public release also closed items 3, 4 and 5 below. Every city now accepts the form a
+Finnish speaker actually says, the fuzzy fallback no longer accepts near-miss nonsense, and
+the matching logic has unit tests.
+
+What's left is dominated by one thing: there are effectively **one and a half categories**.
+That is now the only problem that seriously limits the game.
 
 ---
 
 ## 1. More categories
 
-**Why first:** this is a party game with one real category in it. *Esimerkki: Pohjoismaat* is a
+**Why first, and now by a wide margin:** this is a party game with one real category in it. *Esimerkki: Pohjoismaat* is a
 five-answer placeholder whose name literally tells you to go fill it in. Nothing else on this
 list improves a game night as much as having six good categories to pick from.
 
 It's also pure content — no architecture, no risk, and it can be crowd-sourced from the people
 who play it. Good candidates are sets that are large, commonly known, and unambiguous: animals,
 countries, foods, bands, verbs, things in a kitchen.
+
+Cheaper than it used to be: stem matching means a new category needs only base forms, with no
+inflection tables to write. `forms` is now only for words no prefix rule reaches.
 
 **Watch out for:** categories where players disagree about what counts. The game gives a yellow
 card for an answer that isn't on the list, so a category with fuzzy boundaries turns into an
@@ -46,53 +51,57 @@ Two approaches, and they solve different halves:
 
 Both together is the right end state: `localStorage` for convenience, export for permanence.
 
-## 3. Finnish inflections for the other 52 cities
+## 3. Finnish inflections for the other 52 cities — **done**
 
-**The problem:** say *"Tampereella"* and you're fine; say *"Porvoossa"* and you get a yellow
-card for a correct answer. That's the most unfair-feeling failure in the game, and it hits 52
-of 72 cities. People do not speak in nominative.
+Matching on the stem, as planned. `stemOf()` cuts two characters from the base form, which is
+what absorbs consonant gradation (*Helsinki* → `helsin`, so *Helsingissä* matches; *Lahti* →
+`lah`, so *Lahdessa* does) and the *i → e* stem class (*Riihimäki* → `riihimä`). Words in
+*-nen* take an *-s* stem instead (*Parainen* → `parais`).
 
-Three ways out, worst to best:
+Three things this plan didn't anticipate:
 
-- **Hand-write the forms.** 52 cities × 4 cases = 208 strings, each an opportunity for a typo.
-  Accurate but joyless, and it doesn't generalise to any new category.
-- **Generate them with rules.** Tempting and harder than it looks — Finnish consonant gradation
-  means *Helsinki → Helsingissä* and *Lahti → Lahdessa*, which no simple suffix rule produces.
-  A real morphological library would do it, but that's a dependency and a build step, and this
-  project's whole premise is having neither.
-- **Match on the stem instead.** Accept an answer whose leading characters match a canonical
-  answer's stem, so `porvoo*` covers every case ending at once. One change, covers all 72
-  cities *and* every future category, no data entry.
+- **The longest matching stem has to win**, and that's correctness rather than polish.
+  *Kemijärvellä* also matches `kem` (Kemi) and *Porvoossa* also matches `por` (Pori). Take the
+  shorter stem and the wrong city silently wins.
+- **The remainder needs to be a real case ending.** A bare prefix rule would accept *salaatti*
+  as *Salo*. Requiring at most three leftover stem characters plus an actual ending
+  (`-ssa`, `-lla`, `-sta`, `-lle`, or anything ending in `-n`) fixes that — and as a bonus
+  rejects *porvoolainen*, which this plan had written off as acceptable collateral.
+- **It's two cities, not three or fifty-two.** *Uusikaupunki* → *Uudessakaupungissa* and
+  *Uusikaarlepyy* inflect both halves of the compound, so they keep hand-written forms.
+  *Kristiinankaupunki* needs none — only its second half inflects.
 
-I'd try the stem approach. It's the only one whose cost doesn't scale with content, and this
-game will live or die on content. It will accept some nonsense (`porvoolainen`), which matters
-much less than wrongly carding a correct answer.
+Verified by a sweep over all 72 cities in the form a speaker actually says, plus a test that
+the corpus still matches the city list so adding a city can't silently skip the sweep.
 
-## 4. Stop accepting near-miss nonsense
+## 4. Stop accepting near-miss nonsense — **done**
 
-The Levenshtein fallback allows one edit for answers up to 11 characters, so `poro` is accepted
-as `pori` and `salo` as `talo`. It's there to absorb speech-to-text noise and it does that job,
-but the threshold is loose on short words specifically.
+Two changes, after item 3 as planned. The first-letter guard went in and rejects *talo* as
+*Salo*.
 
-Cheap improvement: require the first letter to match before allowing a fuzzy match. STT rarely
-mangles the initial sound, and it kills most of the false positives at a stroke.
+**This plan was wrong about it being enough.** It claimed the guard would "kill most of the
+false positives at a stroke", but the case it names — *poro* → *pori* — survives it, because
+both words start with `p`. What actually kills it is dropping the `Math.max(1, ...)` floor on
+the threshold, so canonicals under six characters allow no edits at all.
 
-Do this **after** item 3, not before — stem matching changes what the fuzzy fallback is even
-being asked to catch, and tuning the threshold twice is wasted work.
+The cost: the five four-letter cities (*Kemi*, *Pori*, *Salo*, *Oulu*, *Akaa*) lose their
+speech-to-text noise tolerance entirely. Affordable because item 3 landed first and covers
+their inflected forms, which is most of what the tolerance was absorbing.
 
-## 5. Make the matching logic testable
+## 5. Make the matching logic testable — **done**
 
-`normalize()`, `levenshtein()` and `matchAnswer()` hold all the genuinely tricky logic and have
-no DOM dependencies, but `js/game.js` is a classic script with no exports, so there's nothing to
-import from a test.
+`normalize()`, `levenshtein()`, `stemOf()` and `matchAnswer()` now live in `js/matching.js`,
+which ends in a `typeof module` guard: a no-op in the browser, a CommonJS export in Node.
+`matchAnswer()` takes the answer list as an argument instead of reading globals.
 
-Worth doing **when items 3 and 4 land**, not before — those change matching behaviour
-substantially, and that's exactly the point where a regression corpus starts earning its keep.
-See [TESTING.md](TESTING.md) for what's worth covering.
+**Cheaper than this plan feared.** It framed the choice as "a module system or a small
+`window.X` seam" and concluded "pick ugly". A separate file needs neither: one extra classic
+`<script>` tag, no bundler, no `window` namespace, and `file://` still works. Tests run on
+`node:test` with no `package.json` and no dependencies.
 
-The cost is real and should be weighed: exports mean either a module system or a small
-`window.X` seam, and modules would break the `file://` workflow that makes this thing pleasant.
-The `window` seam is ugly and keeps that property. Pick ugly.
+It earned its keep immediately. The stem rule in item 3 would have been a guess without the
+72-city sweep, and pinning *poro* → *pori* **before** touching the threshold is what made the
+trade in item 4 visible in the diff instead of discovered later in a game.
 
 ## 6. A turn timer
 
@@ -104,6 +113,15 @@ rather than at any particular point in the order.
 
 Not urgent, none of it user-visible, listed so it isn't rediscovered from scratch:
 
+- **Convert the inline `onclick=` attributes to `addEventListener`.** This one now has a
+  concrete payoff rather than being taste: the deployed CSP needs
+  `script-src 'unsafe-inline'` for those ~12 attributes, which makes it close to useless
+  against XSS. Converting them lets it drop to `script-src 'self'`. It does **not** require
+  modules and so does not threaten the `file://` workflow — constraint 1 in the README is
+  about `type="module"`, not about `addEventListener`. Low stakes either way (no backend, no
+  auth, no cookies, nothing cross-user), which is why it's here and not above.
+- **Add a favicon.** Every page load logs a 404 for `/favicon.ico`, which is noise in a
+  console that TESTING.md asks you to check is clean. Two minutes.
 - `giveYellowCard()` decides control flow by **reading a DOM class** to check whether the game
   ended. A state flag would be honest about what it's actually asking.
 - `checkGameOver()` is called from both `giveYellowCard()` and `nextTurn()`.
@@ -126,8 +144,10 @@ makes the game work, which is a group of people looking at each other while one 
 phone. Passing a device around isn't a limitation being worked around; it's the format. If you
 want this, treat it as a different project rather than an iteration on this one.
 
-**A build system.** No dependencies, no compile step, double-click to play. Everything above is
-achievable without giving that up, and it's worth more than tidier syntax.
+**A build system.** No dependencies, no compile step, double-click to play — still literally
+true, and the public deploy didn't cost it. The `Containerfile` copies four files into a Caddy
+image; it is packaging, not a build. The tests run on `node:test` with no `package.json`.
+Nothing above needs this to change, and it's worth more than tidier syntax.
 
 **Offline fonts.** Google Fonts is the only non-speech network dependency; offline it falls back
 to system sans-serif and looks slightly worse. Vendoring the files would fix it. Low value —

@@ -1,28 +1,63 @@
 # Testing
 
-There is no test framework here, and for now that's a deliberate choice rather than a gap —
-the game is ~400 lines of DOM-driven code whose riskiest component (Finnish speech
-recognition) can't be meaningfully automated anyway. What follows is the manual smoke test to
-run before pushing, plus an honest account of what should be automated when this stops being
-a prototype.
+The matching logic has unit tests; everything else is checked by hand. That split is
+deliberate: the pure functions are where a real bug hides, and the riskiest component of the
+game (Finnish speech recognition) can't be meaningfully automated at all.
+
+## Automated
+
+No framework, no dependencies, no `package.json`:
+
+```sh
+node --test test/*.test.js
+```
+
+Note the glob. `node --test test/` **fails** — Node resolves the directory as a module.
+
+- `test/matching.test.js` — `normalize`, `levenshtein`, `stemOf` and `matchAnswer`. The
+  load-bearing case is the sweep over all 72 cities in the form a Finnish speaker actually
+  says, guarded by a second test that the corpus still matches the city list, so adding a city
+  can't silently skip the sweep.
+- `test/categories.test.js` — structural validation of the shipped data: unique lowercase
+  canonicals, string `forms`, no form colliding with another answer's canonical, no
+  `CITY_ALIASES` key missing from `CITY_LIST`.
+
+CI runs both on every pull request, plus `node --check` on each script, an image build (which
+runs `caddy validate`), and a check that the container serves all five files with the expected
+headers.
 
 ## Running it
 
-Two ways, and **they are not equivalent** — test whichever one you actually tell people to use:
+Three ways, and **they are not equivalent** — test whichever one you actually tell people to
+use:
 
 ```sh
-# 1. Straight from disk. This is the intended workflow.
+# 1. Straight from disk. This is the intended local workflow.
 open -a "Google Chrome" index.html
 
 # 2. Over localhost. Needed if Chrome refuses mic permission on a file:// origin.
 python3 -m http.server 8000
 # then http://localhost:8000
+
+# 3. The actual published artefact, headers and all.
+podman run --rm -p 8080:8080 ghcr.io/juusoi/say-it-once:latest
+# then http://localhost:8080
 ```
+
+Option 3 is the only one that exercises the CSP and the security headers. Do it before
+shipping anything that touches `deploy/Caddyfile`: a header that silently disables the
+microphone looks exactly like a broken microphone.
 
 The split into `css/` and `js/` keeps option 1 working: classic `<script src>` and `<link>`
 tags have no CORS restriction on `file://`. Only ES modules and `fetch()` are blocked there,
 which is exactly why the code avoids both. **If you ever change how the JS is loaded, re-test
-from `file://` specifically** — this failure mode does not appear over localhost.
+from `file://` specifically** — this failure mode does not appear over localhost. A quick
+non-interactive check that all three scripts ran is that the category dropdown is populated:
+
+```sh
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless \
+  --virtual-time-budget=3000 --dump-dom "file://$PWD/index.html" | grep '<option'
+```
 
 ## Smoke test
 
@@ -50,8 +85,11 @@ text input isolates game logic from STT noise; speech gets tested separately in 
 | `helsinki` | Accepted, turn passes to B | Message **stays visible** |
 | `helsinki` again | Duplicate → yellow card | Message **stays visible** |
 | `qwertyuiop` | Invalid → yellow card | Message **stays visible** |
-| `helsingissä` | Accepted — inflected form | Only works for the 20 cities that have forms |
-| `porvoo` | Accepted | Base form; `porvoossa` is **expected to fail** |
+| `helsingissä` | Accepted — hand-written form | Consonant gradation, k → g |
+| `porvoossa` | Accepted — stem match | No hand-written forms exist for Porvoo |
+| `mäntässä` | Accepted — stem match | Gradation again, tt → t |
+| `salaatti` | Invalid → yellow card | Shares the stem `sal` with *salo*, but `aatti` is not a case ending |
+| `poro` | Invalid → yellow card | Was accepted as *pori* before the fuzzy threshold was tightened |
 
 The "stays visible" column is the whole point. Feedback was previously set and wiped in the
 same tick, so **every** message was invisible. If you see a message flash and vanish, that
@@ -83,6 +121,8 @@ service. Test it by hand, in Chrome, with the actual Finnish words people will s
 
 ### 5. Admin screen
 
+- **The entry button is absent** on a plain load, and appears when you add `#admin` to the URL.
+  Clearing the fragment hides it again without a reload.
 - Opens pre-filled with the live categories as formatted JSON.
 - Malformed JSON → parse error shown inline, changes not applied.
 - Structurally wrong JSON (category with no `answers`, answer with no `canonical`) → the
@@ -99,17 +139,9 @@ service. Test it by hand, in Chrome, with the actual Finnish words people will s
 
 ## What deserves automation, and what doesn't
 
-Worth automating, if this grows past prototype:
-
-- **`normalize()`, `levenshtein()` and `matchAnswer()`.** Pure functions, no DOM, and they hold
-  all the genuinely tricky logic — Finnish characters, case folding, inflected-form lookup,
-  the fuzzy threshold. This is where a real bug will hide and where a unit test costs almost
-  nothing. It's the one place automation clearly pays for itself today.
-- **The category data.** A structural check is cheaper than a test: no duplicate `canonical`
-  values, everything lowercase, every `forms` entry a string, no form colliding with a
-  different answer's canonical. Data bugs here surface as baffling gameplay.
-- **A fuzzy-matching regression corpus.** Pin the known false positives (`poro` → `pori`) so
-  that tuning the threshold shows you exactly what you traded.
+Done, and it paid for itself immediately: the stem rule would have been a guess without the
+72-city sweep, and pinning `poro` → `pori` before tightening the threshold is what made the
+trade visible in the diff rather than discovered later in a game.
 
 Deliberately **not** worth automating right now:
 
@@ -121,13 +153,21 @@ Deliberately **not** worth automating right now:
   and it's how you'll find the actual problems, like which Finnish city names Google reliably
   mangles.
 
-Note that unit-testing those pure functions needs a small code change first: `js/game.js` is a
-classic script with no exports, so there's nothing to import. That's tracked in
-[ROADMAP.md](ROADMAP.md) rather than done pre-emptively — it trades away the zero-tooling
-property that makes this thing pleasant, so it should wait until there's a reason.
+The seam this needed turned out to be cheaper than expected. An earlier version of this file
+assumed a `window.X` export and said to "pick ugly"; instead the pure functions moved to their
+own file, `js/matching.js`, ending in a `typeof module` guard. That is a no-op in the browser,
+a real CommonJS export in Node, one extra classic `<script>` tag, and no tooling — so the
+zero-dependency, double-click-to-play property survived intact.
 
 ## Before you push
 
+- `node --test test/*.test.js` passes.
 - Run the smoke test above from `file://`, in Chrome.
-- Check the console is clean.
+- Check the console is clean, apart from the known `/favicon.ico` 404.
+- If you touched `deploy/Caddyfile`, `Containerfile` or anything under `.github/`, run the
+  smoke test against the container too (option 3 above) and press the microphone — that is the
+  only way a header regression shows up.
 - Confirm `git status` is empty and the diff is what you meant to change.
+
+Merging to `main` publishes a new image, and the server picks it up within about five minutes.
+See [deploy/README.md](deploy/README.md).
