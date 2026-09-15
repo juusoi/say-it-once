@@ -25,9 +25,10 @@ Wants=network-online.target
 # shows up.
 #
 # The sha- tags the Release workflow publishes are for identifying a build,
-# not for deploying one. To roll back, republish an older commit onto :latest
-# with the Release workflow; see "Rolling back" in README.md. Nothing in the
-# runbook should ever have you edit this line.
+# not for deploying one. To roll back, move :latest onto an older release with
+# the Release workflow -- it re-tags, so nothing is rebuilt and nothing here
+# changes; see "Rolling back" in README.md. Nothing in the runbook should ever
+# have you edit this line.
 #
 # deploy/preflight.sh fails if this invariant is broken.
 Image=ghcr.io/juusoi/say-it-once:latest
