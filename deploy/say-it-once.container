@@ -1,8 +1,8 @@
 # Quadlet unit for the public deploy. Committed here as the source of truth;
 # install it on the server with:
 #
-#   install -Dm644 say-it-once.container \
-#     ~/.config/containers/systemd/say-it-once.container
+#   mkdir -p ~/.config/containers/systemd
+#   cp say-it-once.container ~/.config/containers/systemd/
 #   systemctl --user daemon-reload
 #   systemctl --user start say-it-once
 #
