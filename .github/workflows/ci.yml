@@ -1,11 +1,15 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
   # Called by release.yml, so an image can never be published ahead of the
   # tests that vet it. Two independent workflows would race.
+  #
+  # Deliberately no `push` trigger. release.yml runs on every push to main and
+  # gates on this workflow with `needs:`, so a push trigger here would run the
+  # whole job twice for one merge -- two lint runs, two test runs, two image
+  # builds. Coverage is unchanged: pull requests hit `pull_request`, and main
+  # is covered through release.yml.
   workflow_call:
 
 permissions:
