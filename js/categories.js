@@ -53,3 +53,7 @@ function defaultCategories(){
     }
   ];
 }
+
+// No-op in the browser; a real CommonJS module in Node, so CI can validate the
+// category data without a DOM. See test/categories.test.js.
+if(typeof module !== 'undefined') module.exports = { CITY_ALIASES, CITY_LIST, defaultCategories };
