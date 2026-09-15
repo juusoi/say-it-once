@@ -11,12 +11,6 @@ on:
   # builds. Coverage is unchanged: pull requests hit `pull_request`, and main
   # is covered through release.yml.
   workflow_call:
-    inputs:
-      ref:
-        description: Ref or SHA to check out. Empty means the triggering ref.
-        type: string
-        required: false
-        default: ''
 
 permissions:
   contents: read
@@ -31,11 +25,6 @@ jobs:
       # reads to propose updates -- see .github/dependabot.yml.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Empty on `pull_request`, where checkout keeps its default
-          # behaviour. Set only when release.yml is republishing an older
-          # commit, so the tests vet the code actually being published rather
-          # than whatever main happens to hold.
-          ref: ${{ inputs.ref }}
           # Nothing here pushes with git, so do not leave a usable token
           # behind in the checkout for later steps to pick up.
           persist-credentials: false
