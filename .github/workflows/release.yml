@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One publish at a time. Two overlapping runs could leave :latest pointing at
+# the older commit's image.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # Depend on CI rather than running alongside it, so a broken commit cannot
+  # publish an image that the server would then pull within five minutes.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The server is amd64. arm64 is built so the exact image that ships can
+      # be pulled and smoke-tested on an Apple Silicon Mac.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Containerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          # Provenance attestations add extra manifests to the image index.
+          # podman auto-update has no use for them and some versions handle
+          # the resulting index poorly; keep it to the two platforms.
+          provenance: false
+          # :latest is the moving tag `AutoUpdate=registry` follows, so it has
+          # to exist and has to move. The sha tag is what a rollback pins to.
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The digest is what the server compares against, so print it: it is the
+      # one value that tells you whether a deploy actually landed.
+      - name: Summary
+        run: |
+          {
+            echo "Published \`ghcr.io/${{ github.repository }}\`"
+            echo
+            echo "- tags: \`latest\`, \`sha-${{ github.sha }}\`"
+            echo "- digest: \`${{ steps.build.outputs.digest }}\`"
+            echo
+            echo "The server picks this up within ~5 minutes via"
+            echo "\`podman-auto-update.timer\`. See \`deploy/README.md\`."
+          } >> "$GITHUB_STEP_SUMMARY"
