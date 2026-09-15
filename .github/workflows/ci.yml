@@ -15,11 +15,21 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      # Actions are pinned to commit SHAs rather than tags: a tag is mutable,
+      # so `@v7` silently follows whatever the tag points at today. The
+      # trailing comment is the human-readable version, and is what Dependabot
+      # reads to propose updates -- see .github/dependabot.yml.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: '22'
+          # Nothing here pushes with git, so do not leave a usable token
+          # behind in the checkout for later steps to pick up.
+          persist-credentials: false
+
+      # Matches the Node used in development, so `node --test` behaves
+      # identically locally and here.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
 
       # Stands in for a linter. There is no package.json and nothing to
       # install, and this catches the class of error that actually ships.

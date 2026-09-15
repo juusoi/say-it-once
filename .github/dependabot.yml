@@ -1,0 +1,18 @@
+# Pinning actions to commit SHAs stops a moved tag from changing what runs,
+# but it also freezes them: without this, a security fix upstream never
+# reaches us and nothing says so. Dependabot reads the `# vX.Y.Z` comment next
+# to each pin and opens a PR that bumps both the SHA and the comment.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    # One PR for all of them rather than six. CI runs on it, so a bump that
+    # breaks the build says so before it is merged.
+    groups:
+      actions:
+        patterns:
+          - "*"
