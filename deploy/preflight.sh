@@ -8,7 +8,7 @@
 # current.
 #
 #   ./preflight.sh                 check the container, unit and timer
-#   ./preflight.sh game.example.fi also check the public URL
+#   ./preflight.sh game.example.com also check the public URL
 #
 # Exits 0 if every check passed (warnings are allowed), 1 if any check failed.
 
