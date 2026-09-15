@@ -72,8 +72,9 @@
 </div>
 <!-- Plain classic scripts, loaded in this order and kept at the end of <body>.
      Do not convert to type="module" or add defer: the inline onclick= handlers
-     need global scope, and game.js runs top-level code that needs both
+     need global scope, and game.js runs top-level code that needs matching.js,
      categories.js and the parsed DOM. See README.md. -->
+<script src="js/matching.js"></script>
 <script src="js/categories.js"></script>
 <script src="js/game.js"></script>
 </body>
