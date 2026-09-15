@@ -30,7 +30,7 @@ hard prerequisite rather than a nicety.
 
 > **`game.example.com` throughout this document is a placeholder.** Substitute
 > the real hostname everywhere it appears — the DNS check, the Caddy site
-> block, the `preflight.sh` argument and the browser check. It is deliberately
+> block and the browser check. It is deliberately
 > a reserved `example.com` name (RFC 2606), so a line pasted without
 > substituting fails against a domain nobody owns rather than reaching a
 > stranger's server. The real hostname is intentionally not committed.
@@ -106,8 +106,8 @@ ss -ltn 'sport = :8080'
 This box already serves other sites, so the port is worth checking rather than
 assuming. If something holds it, change only the *host* side of `PublishPort=`
 in the unit — `127.0.0.1:8081:8080` — and point the Caddy site block at the
-same number. `preflight.sh` parses `PublishPort=` out of the unit, so it
-follows the change on its own.
+same number. The container side stays 8080; that is what Caddy listens on
+inside the image.
 
 ### DNS has to resolve here already
 
@@ -125,27 +125,21 @@ serves an error rather than the game. There is no firewall step: 80 and 443
 are necessarily already open, since the host Caddy is already serving other
 sites over TLS.
 
-### The deploy files have to be on the box
+### The Quadlet unit has to be on the box
 
-The server never builds anything, but it does need two files from this repo —
-the Quadlet unit and the preflight script:
-
-```sh
-git clone --depth 1 https://github.com/juusoi/say-it-once.git ~/src/say-it-once
-cd ~/src/say-it-once/deploy
-```
-
-A clone is the convenient form, because `git pull` later gets you an updated
-unit and an updated `preflight.sh`. It is *only* a copy of those files:
-nothing on the server builds from this checkout, and the running site does not
-come from it — it comes from the image. If you would rather not have a
-checkout on the box at all, two files copied over are enough — this one from
-your laptop, at the repo root, and it is the only command in this document
-that does not run on the server:
+The server never builds anything, and it needs exactly one file from this
+repo — `deploy/say-it-once.container`. Copy it from your laptop, at the repo
+root; this is the only command in this document that does not run on the
+server:
 
 ```sh
-scp deploy/say-it-once.container deploy/preflight.sh <server>:
+scp deploy/say-it-once.container <server>:
 ```
+
+A `git clone --depth 1` on the server works too and makes picking up a later
+change to the unit a `git pull`. Either way it is *only* a copy of that one
+file: nothing on the server builds from it, and the running site does not come
+from it — it comes from the image.
 
 ## One-time setup
 
@@ -169,7 +163,7 @@ If that ever fails, set visibility on the package page (*Packages* →
 with a read-only PAT, which means a long-lived credential on the box and a
 token to rotate. Public is simpler and the source is public anyway.
 
-`preflight.sh` covers this too: it runs `podman auto-update --dry-run`, which
+`podman auto-update --dry-run` covers this too, and is the check in step 7: it
 walks the same pull path the timer does, so a 401 surfaces as a failure rather
 than as silence.
 
@@ -278,39 +272,34 @@ systemctl --user daemon-reload
 systemctl --user enable --now podman-prune.timer
 ```
 
-### 7. Preflight
+### 7. Check the setup took
 
-Everything above fails quietly when it fails. Run the check rather than
-assuming the setup took:
+Every step above fails quietly when it fails: the site keeps serving whatever
+it already has, no unit fails, nothing is logged, and the only symptom is that
+a merge to main never shows up. Four commands cover it:
 
 ```sh
-./preflight.sh                  # container, unit and timer
-./preflight.sh game.example.com  # and the public URL
+podman auto-update --dry-run                           # this container, Updated=false
+systemctl --user list-timers podman-auto-update.timer  # NEXT within ~5 min
+loginctl show-user "$USER" --property=Linger           # Linger=yes
+curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/   # 200
 ```
 
-It exits non-zero if anything is wrong, and each line says what to do. It
-asserts the things that otherwise produce no error anywhere:
+`--dry-run` is the one that matters most, and it is the answer to "is the
+running image current?". It walks the same pull path the timer does, so it
+also catches the GHCR package going private — a 401 surfaces as an error
+rather than as silence. `Updated=false` means current; `pending` means the
+timer has not run yet.
 
-| It checks | Because otherwise |
-|---|---|
-| `Image=` is a floating tag | a `sha-` tag or digest can never trigger auto-update |
-| `AutoUpdate=registry` is set and not commented out | nothing ever updates |
-| the timer is enabled and active | nothing ever updates |
-| the timer is off the daily default | deploys land up to 24 h late *(warning)* |
-| linger is enabled | everything stops when you log out |
-| the unit is active and the container healthy | a bad image has nothing to roll back from |
-| `auto-update --dry-run` reports nothing pending | the running image is stale, or the package went private |
-| the published port serves 200 | serving is broken behind a working proxy |
+`NEXT` showing tomorrow rather than minutes from now means the timer drop-in
+in step 5 did not take, and deploys will land up to 24 h late.
 
-Without a hostname argument it does not touch the public URL, so a green run
-on its own does not prove the site is reachable from outside. It says so.
-
-Re-run it any time you are unsure whether the running version is current —
-that is the question it exists to answer.
+None of this touches the public URL, so passing it does not prove the site is
+reachable from outside. That is step 8.
 
 ### 8. Open it in a browser and say something
 
-The one thing `preflight.sh` cannot check is the thing the game is for. A 200
+The one thing no command above checks is the thing the game is for. A 200
 from `https://game.example.com/` proves the bytes are served; it does not prove
 the browser will hand over a microphone. Open the site on a real device, start
 a round, and confirm speech recognition actually fires — see the smoke test in
@@ -324,9 +313,9 @@ looks nothing like a header problem. That is what step 4 is warning about.
 
 ## Verifying a deploy
 
-`./preflight.sh` answers "is the running image current?" directly, and is the
-quickest check. To watch a specific deploy land, merge something trivial to
-main, then on the server:
+`podman auto-update --dry-run` answers "is the running image current?"
+directly, and is the quickest check. To watch a specific deploy land, merge
+something trivial to main, then on the server:
 
 ```sh
 # Did the timer run, and did it see a new digest?

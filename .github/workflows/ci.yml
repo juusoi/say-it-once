@@ -54,17 +54,11 @@ jobs:
       - name: Lint JS and CSS
         run: biome ci --error-on-warnings .
 
-      # actionlint shellchecks `run:` blocks but not standalone scripts, and
-      # Biome does not cover shell at all -- so deploy/preflight.sh would
-      # otherwise be the one unlinted file in the repo. A preflight script
-      # with a bug in it is worse than no preflight script.
+      # No standalone shellcheck step: the repo has no shell scripts of its
+      # own any more. actionlint below still shellchecks every `run:` block,
+      # which is where all the shell now lives. Add one back if a .sh ever
+      # returns -- actionlint does not cover standalone scripts.
       #
-      # Pinned by image digest. v0.11.0 matches the shellcheck used locally.
-      - name: Lint shell scripts
-        uses: docker://koalaman/shellcheck@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
-        with:
-          args: deploy/preflight.sh
-
       # Lints the workflow files themselves and shellchecks every embedded
       # `run:` script. Earns its place: it is what caught a `grep -q ... &&
       # exit 1` in this file that would have failed the build on its own
