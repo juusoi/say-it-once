@@ -184,8 +184,8 @@ Without this, rootless units stop when the user logs out.
 ### 3. Install the Quadlet unit
 
 ```sh
-install -Dm644 say-it-once.container \
-  ~/.config/containers/systemd/say-it-once.container
+mkdir -p ~/.config/containers/systemd
+cp say-it-once.container ~/.config/containers/systemd/
 systemctl --user daemon-reload
 systemctl --user start say-it-once
 systemctl --user status say-it-once
