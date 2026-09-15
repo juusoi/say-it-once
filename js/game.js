@@ -67,7 +67,7 @@ function startGame(){
   document.getElementById('game-screen').classList.remove('hidden');
   document.getElementById('winner-screen').classList.add('hidden');
   document.getElementById('game-limitation-note').textContent =
-    `Kategoria: ${CATEGORIES[selectedCategoryIndex].name}. Taivutusmuodot toimivat vain jos ne on lisätty admin-paneelissa — muuten sano perusmuoto.`;
+    `Kategoria: ${CATEGORIES[selectedCategoryIndex].name}. Taivutusmuodot tunnistetaan yleensä automaattisesti — sano vastaus siinä muodossa kuin se luontevasti tulee.`;
   clearFeedback();
   renderScoreboard();
   renderCurrentPlayer();

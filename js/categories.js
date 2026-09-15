@@ -19,7 +19,13 @@ const CITY_ALIASES = {
   "rovaniemi": ["rovaniemellä","rovaniemelle","rovaniemen","rovaniemeltä"],
   "mikkeli": ["mikkelissä","mikkeliin","mikkelin","mikkelistä"],
   "kotka": ["kotkassa","kotkaan","kotkan","kotkasta"],
-  "salo": ["salossa","saloon","salon","salosta"]
+  "salo": ["salossa","saloon","salon","salosta"],
+  // Compounds whose *first* half inflects too, so no stem rule reaches them:
+  // Uusikaupunki -> Uudessakaupungissa. These two are the whole reason
+  // hand-written forms still exist. (Kristiinankaupunki needs none -- only
+  // its second half inflects, so the stem rule handles it.)
+  "uusikaupunki": ["uudessakaupungissa","uuteenkaupunkiin","uudenkaupungin","uudestakaupungista"],
+  "uusikaarlepyy": ["uudessakaarlepyyssä","uudenkaarlepyyn"]
 };
 const CITY_LIST = [
   "helsinki","espoo","tampere","vantaa","oulu","turku","jyväskylä","lahti","kuopio","kouvola",
