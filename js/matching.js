@@ -26,16 +26,56 @@ function levenshtein(a,b){
   return dp[m][n];
 }
 
+// Finnish case endings, enough to cover how a place name actually gets said:
+// the local cases and their sources, the allative, and every illative or
+// genitive form -- all of which end in -n, so one entry covers them all.
+const CASE_ENDINGS = ['ssa','ssä','sta','stä','lla','llä','lta','ltä','lle','n'];
+
+// Up to three characters of leftover stem, then a case ending. That bound is
+// what stops a three-character stem from swallowing unrelated words: "sal"
+// prefixes "salaatti", but "aatti" carries no case ending, so it is rejected.
+const CASE_ENDING_RE = new RegExp('^.{0,3}(?:' + CASE_ENDINGS.join('|') + ')$');
+
+// The leading characters an inflected form shares with its base form. Cutting
+// two characters is what absorbs consonant gradation (helsinki -> helsin, so
+// "helsingissä" matches; lahti -> lah, so "lahdessa" does) and the i -> e stem
+// class (riihimäki -> riihimä, so "riihimäellä" does). Words in -nen take an
+// -s stem instead: parainen -> parais, matching "paraisissa".
+function stemOf(canonical){
+  if(canonical.length > 3 && canonical.endsWith('nen')) return canonical.slice(0,-3) + 's';
+  return canonical.slice(0, Math.max(3, canonical.length - 2));
+}
+
 // returns canonical answer string if matched, else null
 function matchAnswer(raw, answers){
   const norm = normalize(raw);
   if(!norm) return null;
 
+  // 1 & 2: the base form, or an inflection somebody wrote out by hand.
   for(const a of answers){
     if(a.canonical === norm) return a.canonical;
     if(a.forms && a.forms.includes(norm)) return a.canonical;
   }
 
+  // 3: a case ending on a known answer's stem, so "porvoossa" reaches
+  // "porvoo" without anyone hand-writing 208 strings.
+  //
+  // The longest matching stem wins, and that is correctness rather than
+  // polish: "kemijärvellä" matches both "kem" (kemi) and "kemijär"
+  // (kemijärvi), and "porvoossa" matches both "por" (pori) and "porv"
+  // (porvoo). Take the shorter stem and the wrong city silently wins.
+  let stemBest = null, stemLen = -1;
+  for(const a of answers){
+    const stem = stemOf(a.canonical);
+    if(stem.length > stemLen
+       && norm.startsWith(stem)
+       && CASE_ENDING_RE.test(norm.slice(stem.length))){
+      stemBest = a.canonical; stemLen = stem.length;
+    }
+  }
+  if(stemBest) return stemBest;
+
+  // 4: last resort, absorb speech-to-text noise on the base form.
   let best = null, bestDist = Infinity;
   for(const a of answers){
     const dist = levenshtein(norm, a.canonical);
@@ -48,4 +88,4 @@ function matchAnswer(raw, answers){
 }
 
 // No-op in the browser; a real CommonJS module in Node.
-if(typeof module !== 'undefined') module.exports = { normalize, levenshtein, matchAnswer };
+if(typeof module !== 'undefined') module.exports = { normalize, levenshtein, stemOf, matchAnswer };
