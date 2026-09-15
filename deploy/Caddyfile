@@ -1,0 +1,40 @@
+# Runs inside the container on :8080. The host Caddy terminates TLS and
+# reverse-proxies to it; this file never sees a certificate.
+#
+# Application-level headers live here rather than in the host Caddyfile so
+# they ship and roll back together with the code they describe.
+
+:8080 {
+	root * /srv
+	file_server
+	encode zstd gzip
+
+	header {
+		# Nothing is fingerprinted, so ETag revalidation is the only correct
+		# answer. Four small files: a conditional request costs far less than
+		# a stale js/game.js would.
+		Cache-Control "no-cache"
+
+		# script-src needs 'unsafe-inline' for the inline onclick= attributes,
+		# which makes this weak against XSS. Acceptable here and stated rather
+		# than pretended away: no backend, no auth, no cookies, nothing
+		# cross-user, and player names already render via textContent.
+		# Converting the handlers to addEventListener would let this drop to
+		# 'self' -- see ROADMAP.md.
+		#
+		# style-src 'unsafe-inline' covers the inline style="" attributes.
+		# Do not tighten connect-src to 'none' or add a Permissions-Policy
+		# without testing the microphone afterwards: shipping a header that
+		# silently disables speech recognition is the obvious self-own here.
+		Content-Security-Policy "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	log {
+		output stderr
+		format console
+	}
+}
