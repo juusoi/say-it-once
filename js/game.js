@@ -48,6 +48,16 @@ document.getElementById('manual-input').addEventListener('keydown', (e) => {
 // "your browser has no speech recognition" is useful before anyone commits to a game.
 checkSpeechSupport();
 
+// The admin editor is reachable only at #admin. Nothing is hidden for security
+// -- it is client-side and persists nothing -- but a raw JSON textarea is not
+// something to hand a player who came to play a party game.
+function syncAdminVisibility(){
+  const entry = document.getElementById('admin-entry');
+  entry.classList.toggle('hidden', location.hash !== '#admin');
+}
+syncAdminVisibility();
+window.addEventListener('hashchange', syncAdminVisibility);
+
 function startGame(){
   selectedCategoryIndex = parseInt(document.getElementById('category-select').value, 10);
   const inputs = [...document.querySelectorAll('#player-inputs input')];

@@ -27,7 +27,10 @@
     <div id="player-inputs"></div>
     <button class="btn-ghost" onclick="addPlayerInput()">+ Lisää pelaaja</button>
 
-    <div class="row-between" style="margin-top:20px;">
+    <!-- Shown only when the page is loaded with #admin. The editor replaces
+         every category and persists nothing, so it is a tool for drafting
+         category data, not something to put in front of a player. -->
+    <div class="row-between hidden" id="admin-entry" style="margin-top:20px;">
       <button class="link-btn" onclick="openAdmin()">Muokkaa kategorioita (admin)</button>
     </div>
     <button class="btn-primary" style="width:100%;" onclick="startGame()">Aloita peli</button>
