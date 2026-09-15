@@ -221,40 +221,56 @@ podman auto-update               # do it now
 runbook told you to point `Image=` at a `sha-<commit>` tag; that works once and
 then stops the server receiving deploys for ever if you forget to undo it,
 because a `sha-` tag always resolves to the same digest and
-`AutoUpdate=registry` has nothing left to notice. The `sha-` tags exist to
-identify a build, not to deploy one.
+`AutoUpdate=registry` has nothing left to notice. The `sha-` tags identify a
+build and are what the fast path below re-tags *from* — they are not something
+to point the server at.
 
 **Durable path — `git revert`.** Revert, merge to main, and the new image
 ships in about five minutes. This is the one that keeps the server's state and
 the repository's state identical, and it is what you want in almost every
 case.
 
-**Fast path — republish an older commit.** `Release` accepts a manual dispatch
-with the commit to build, and moves `:latest` onto it. Nothing on the server
-changes:
+**Fast path — move `:latest` back onto an earlier release.** `Release` takes a
+manual dispatch naming a commit, and re-tags `:latest` onto the image that
+already shipped for it. Nothing is rebuilt and nothing on the server changes:
 
 ```sh
-gh workflow run release.yml -f ref=<commit-sha>
+gh workflow run release.yml -f sha=<commit>
 gh run watch "$(gh run list --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
 ```
 
-Dispatch it from `main` and pass the target as `-f ref=…`, not with
-`--ref <sha>`: the dispatch API accepts only a branch or tag name for its own
-ref, and dispatching *at* an old commit also needs the workflow file to exist
-there.
+A short SHA is fine, as is a tag or branch name — the job resolves it. Because
+a single manifest-list source makes the copy exact, `:latest` ends up on the
+same digest, the same two platforms, and the same bytes that ran before.
 
-Two things to know before using it:
+It **builds nothing**, which is the point. An earlier version of this rebuilt
+the old commit and it did not work: a dispatch checks out old code but runs
+`ci.yml` from `main`, so current lint and test steps ran against a tree that
+lacked the config they needed, and any commit old enough to be worth rolling
+back to failed. Re-tagging avoids that entirely, and needs no CI — the image
+it points at was already gated when it shipped.
+
+Three things to know before using it:
 
 - **It is temporary.** `main` still holds the bad commit, so the next merge
   publishes straight over your rollback. It buys time to write the revert; it
   is not the revert.
+- **Only released commits are available.** Merge commits that triggered a
+  `Release` have a `sha-` tag; commits inside a multi-commit push do not. List
+  the real ones with `gh run list --workflow=release.yml`. If the commit you
+  want was never released, use `git revert`.
 - **Check the Actions queue is empty first.** The `release` concurrency group
   queues rather than cancels, so a push-triggered run already waiting will
   execute after yours and republish what you just rolled away from.
 
-The run's step summary states which commit it built and, on a dispatch, that
-the rollback is temporary. CI runs against the commit being published, not
-against `main`.
+A bad input cannot hurt you: the job resolves the commit and confirms the
+source image exists *before* it touches `:latest`, so a typo fails the run and
+leaves the tag alone. The step summary records what was requested, what it
+resolved to, the resulting digest, and that the rollback is temporary.
+
+Because it re-tags rather than rebuilds, a rollback also carries that release's
+`deploy/Caddyfile` and headers — correct for a rollback, and worth remembering
+when reasoning about a header change.
 
 **Automatic path — a bad image never sticks.** If a new image starts but fails
 its health check, podman restores the previous one by itself. That is the whole
