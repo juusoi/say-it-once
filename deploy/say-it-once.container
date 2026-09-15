@@ -1,0 +1,61 @@
+# Quadlet unit for the public deploy. Committed here as the source of truth;
+# install it on the server with:
+#
+#   install -Dm644 say-it-once.container \
+#     ~/.config/containers/systemd/say-it-once.container
+#   systemctl --user daemon-reload
+#   systemctl --user start say-it-once
+#
+# Runs rootless under a normal user. See deploy/README.md.
+
+[Unit]
+Description=say-it-once — static site behind the host Caddy
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/juusoi/say-it-once:latest
+
+# Follow the moving :latest tag. This is what podman-auto-update.timer acts
+# on; pin a digest here and auto-update will never fire.
+AutoUpdate=registry
+
+# Loopback only. The host Caddy terminates TLS and reverse-proxies to this;
+# the container itself speaks plain HTTP and must never be reachable directly
+# from outside. ("HTTP/2 skipped because it requires TLS" in the log is
+# expected and harmless: the host handles HTTP/2 with the client.)
+PublishPort=127.0.0.1:8080:8080
+
+# The health check lives here rather than in the image because podman builds
+# OCI images by default and silently drops a HEALTHCHECK instruction. It is
+# load-bearing: `podman auto-update` restores the previous image only when the
+# new container fails to come up healthy, so without this a broken deploy
+# stays broken.
+HealthCmd=wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1
+HealthInterval=30s
+HealthTimeout=5s
+HealthStartPeriod=10s
+HealthRetries=3
+
+ReadOnly=true
+NoNewPrivileges=true
+
+# Caddy writes to both even when it only serves files: the official image
+# points XDG_DATA_HOME and XDG_CONFIG_HOME at them. With a read-only rootfs
+# and no volumes it still serves, but logs storage errors on every start.
+Volume=say-it-once-data:/data
+Volume=say-it-once-config:/config
+
+# Deliberately no DropCapability=ALL. The caddy binary carries file
+# capabilities, and emptying the bounding set makes exec fail outright with
+# "Operation not permitted" — the container never starts. Rootless podman
+# already gives a restricted default set.
+
+[Service]
+Restart=always
+# Measured at ~12 MB serving this site. The cap is here so that on a 1 GB box
+# a runaway cannot take the host Caddy down with it.
+MemoryMax=128M
+
+[Install]
+WantedBy=default.target
