@@ -34,22 +34,55 @@ Everything below runs **on the server**, as the normal (non-root) user that
 will own the container. Four things have to be true before the setup steps
 work, and each one fails in a way that is hard to read backwards from.
 
-### podman has to be new enough to have Quadlet
+### podman has to have Quadlet, and rootless has to actually work
 
 ```sh
 podman --version                                          # 4.4 or newer
 systemctl --user list-unit-files podman-auto-update.timer # must be listed
+podman run --rm docker.io/library/alpine true             # must exit 0
 ```
 
 Quadlet — the thing that turns `say-it-once.container` into a systemd service
 — arrived in podman 4.4. On anything older the `.container` file is simply
 ignored: `daemon-reload` succeeds, `systemctl --user start say-it-once` says
 `Unit say-it-once.service not found`, and nothing anywhere explains why.
-Debian 12 ships podman 4.3.1, so that is the usual way to hit this; Debian 13,
-Ubuntu 24.04 and current Fedora are all fine.
+Debian 12's 4.3.1 is the usual way to hit that; Ubuntu 24.04 and later, Debian
+13 and current Fedora all ship something new enough.
 
 `podman-auto-update.timer` comes from the same package. If it is not listed,
 the entire pull-on-a-timer design has nothing to run it.
+
+The third line is the one worth actually running. Version and packaging are
+easy to eyeball; whether *this user* can start a rootless container is not,
+and it fails for two reasons that look nothing alike:
+
+**No subuid/subgid range.** Rootless podman maps container UIDs into a range
+delegated to the user, and a user created without one gets
+`ERRO[0000] cannot find UID/GID for user …: no subuid ranges found`. Accounts
+made by `adduser` on a desktop-style install have a range; ones made by
+`useradd`, by cloud-init, or as system users often do not.
+
+```sh
+grep "^$USER:" /etc/subuid /etc/subgid     # expect one line in each
+# if missing:
+sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$USER"
+podman system migrate                      # re-map existing containers
+```
+
+**AppArmor blocking unprivileged user namespaces.** Ubuntu restricts them by
+default (`kernel.apparmor_restrict_unprivileged_userns=1`, on since 23.10) and
+permits known binaries through a shipped profile. Podman from the Ubuntu
+archive is covered; a podman installed from a third-party build or copied in
+by hand is not, and fails with `Operation not permitted` on namespace
+creation rather than anything mentioning AppArmor.
+
+```sh
+sysctl kernel.apparmor_restrict_unprivileged_userns   # 1 is normal on Ubuntu
+```
+
+A `1` here is not a problem on its own — only a `1` *together with* a failing
+`podman run` is. Do not turn it off to make the error go away; install podman
+from the archive so its profile applies.
 
 If `systemctl --user` answers `Failed to connect to bus` over SSH:
 
