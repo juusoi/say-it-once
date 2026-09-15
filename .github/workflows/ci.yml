@@ -31,13 +31,33 @@ jobs:
         with:
           node-version: '24'
 
-      # Stands in for a linter. There is no package.json and nothing to
-      # install, and this catches the class of error that actually ships.
+      # Cheap backstop: catches a parse error even if the linter below is
+      # ever misconfigured or skipped.
       - name: Syntax-check every script
         run: |
           node --check js/matching.js
           node --check js/categories.js
           node --check js/game.js
+
+      # Biome is a single pinned binary, so linting costs no package.json, no
+      # lockfile and no node_modules -- the repo still has zero dependencies.
+      # Lint only; see biome.jsonc for why the formatter is off and why three
+      # rules are disabled.
+      - uses: biomejs/setup-biome@4c91541eaada48f67d7dbd7833600ce162b68f51 # v2.7.1
+        with:
+          version: 2.5.13
+
+      - name: Lint JS and CSS
+        run: biome ci --error-on-warnings .
+
+      # Lints the workflow files themselves and shellchecks every embedded
+      # `run:` script. Earns its place: it is what caught a `grep -q ... &&
+      # exit 1` in this file that would have failed the build on its own
+      # success path, because under bash -e a grep finding nothing returns 1.
+      #
+      # Pinned by image digest rather than the mutable :1.7.12 tag.
+      - name: Lint workflows
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
 
       # Note the glob: `node --test test/` fails on current Node, which
       # resolves the directory as a module. Passing files works.

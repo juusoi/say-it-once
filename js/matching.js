@@ -54,7 +54,7 @@ function matchAnswer(raw, answers){
   // 1 & 2: the base form, or an inflection somebody wrote out by hand.
   for(const a of answers){
     if(a.canonical === norm) return a.canonical;
-    if(a.forms && a.forms.includes(norm)) return a.canonical;
+    if(a.forms?.includes(norm)) return a.canonical;
   }
 
   // 3: a case ending on a known answer's stem, so "porvoossa" reaches
