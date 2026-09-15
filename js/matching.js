@@ -76,10 +76,22 @@ function matchAnswer(raw, answers){
   if(stemBest) return stemBest;
 
   // 4: last resort, absorb speech-to-text noise on the base form.
+  //
+  // Two guards keep this from accepting near-miss nonsense. Speech-to-text
+  // rarely mangles the initial sound, so require the first letter to match --
+  // that is what rejects "talo" as salo. And no edits at all below six
+  // characters, because one edit on a four-letter word is most of the word --
+  // that is what rejects "poro" as pori, which the first-letter guard alone
+  // does not, both starting with p.
+  //
+  // The short names (kemi, pori, salo, oulu, akaa) lose their noise tolerance
+  // entirely. Affordable now and not before: tier 3 above covers their
+  // inflections, which is most of what the tolerance was absorbing.
   let best = null, bestDist = Infinity;
   for(const a of answers){
+    if(norm[0] !== a.canonical[0]) continue;
     const dist = levenshtein(norm, a.canonical);
-    const threshold = Math.max(1, Math.floor(a.canonical.length/6));
+    const threshold = Math.floor(a.canonical.length/6);
     if(dist <= threshold && dist < bestDist){
       best = a.canonical; bestDist = dist;
     }

@@ -148,8 +148,23 @@ test('genitive and illative forms are accepted too', () => {
   assert.equal(match('kuusamolle'), 'kuusamo');
 });
 
-test('BASELINE: the fuzzy fallback accepts near-miss nonsense', () => {
-  // One edit is allowed even on four-letter canonicals. ROADMAP #4.
-  assert.equal(match('poro'), 'pori');
-  assert.equal(match('talo'), 'salo');
+test('the fuzzy fallback no longer accepts near-miss nonsense', () => {
+  // One edit used to be allowed even on four-letter canonicals. ROADMAP #4.
+  assert.equal(match('poro'), null, 'rejected by the six-character floor');
+  assert.equal(match('talo'), null, 'rejected by the first-letter guard');
+  assert.equal(match('sali'), null);
+  assert.equal(match('koira'), null);
+});
+
+test('the fuzzy fallback still absorbs one edit on longer names', () => {
+  // The point of the fallback: speech-to-text noise on a name long enough
+  // that one wrong character is clearly noise rather than a different word.
+  assert.equal(match('kuopiu'), 'kuopio');
+  assert.equal(match('savonlinnna'), 'savonlinna');
+  assert.equal(match('lappeenrantta'), 'lappeenranta');
+});
+
+test('a wrong first letter is never a fuzzy match', () => {
+  assert.equal(match('kuopiu'), 'kuopio');
+  assert.equal(match('tuopio'), null, 'same distance, wrong initial sound');
 });
