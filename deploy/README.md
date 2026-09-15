@@ -28,9 +28,86 @@ degraded microphone — it has none. The host Caddy already terminates TLS for
 other sites here, so this costs nothing, but it does mean a real hostname is a
 hard prerequisite rather than a nicety.
 
-## One-time setup
+## Before you start
 
-Run as the normal (non-root) user that will own the container.
+Everything below runs **on the server**, as the normal (non-root) user that
+will own the container. Four things have to be true before the setup steps
+work, and each one fails in a way that is hard to read backwards from.
+
+### podman has to be new enough to have Quadlet
+
+```sh
+podman --version                                          # 4.4 or newer
+systemctl --user list-unit-files podman-auto-update.timer # must be listed
+```
+
+Quadlet — the thing that turns `say-it-once.container` into a systemd service
+— arrived in podman 4.4. On anything older the `.container` file is simply
+ignored: `daemon-reload` succeeds, `systemctl --user start say-it-once` says
+`Unit say-it-once.service not found`, and nothing anywhere explains why.
+Debian 12 ships podman 4.3.1, so that is the usual way to hit this; Debian 13,
+Ubuntu 24.04 and current Fedora are all fine.
+
+`podman-auto-update.timer` comes from the same package. If it is not listed,
+the entire pull-on-a-timer design has nothing to run it.
+
+If `systemctl --user` answers `Failed to connect to bus` over SSH:
+
+```sh
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
+```
+
+### Port 8080 has to be free
+
+```sh
+ss -ltn 'sport = :8080'
+```
+
+This box already serves other sites, so the port is worth checking rather than
+assuming. If something holds it, change only the *host* side of `PublishPort=`
+in the unit — `127.0.0.1:8081:8080` — and point the Caddy site block at the
+same number. `preflight.sh` parses `PublishPort=` out of the unit, so it
+follows the change on its own.
+
+### DNS has to resolve here already
+
+```sh
+getent hosts game.example.fi             # or: dig +short game.example.fi
+curl -fsS https://ifconfig.me; echo      # compare
+```
+
+`getent` rather than `dig` because it is always present; a minimal VPS often
+has no `dnsutils`/`bind-utils`.
+
+Caddy requests a certificate the moment you reload it with the new site block.
+If the name does not resolve to this box the ACME challenge fails and the site
+serves an error rather than the game. There is no firewall step: 80 and 443
+are necessarily already open, since the host Caddy is already serving other
+sites over TLS.
+
+### The deploy files have to be on the box
+
+The server never builds anything, but it does need two files from this repo —
+the Quadlet unit and the preflight script:
+
+```sh
+git clone --depth 1 https://github.com/juusoi/say-it-once.git ~/src/say-it-once
+cd ~/src/say-it-once/deploy
+```
+
+A clone is the convenient form, because `git pull` later gets you an updated
+unit and an updated `preflight.sh`. It is *only* a copy of those files:
+nothing on the server builds from this checkout, and the running site does not
+come from it — it comes from the image. If you would rather not have a
+checkout on the box at all, two files copied over are enough — this one from
+your laptop, at the repo root, and it is the only command in this document
+that does not run on the server:
+
+```sh
+scp deploy/say-it-once.container deploy/preflight.sh <server>:
+```
+
+## One-time setup
 
 ### 1. Confirm the GHCR package is public
 
@@ -74,8 +151,11 @@ systemctl --user start say-it-once
 systemctl --user status say-it-once
 ```
 
-Quadlet generates the systemd service from the `.container` file, so there is
-no unit to hand-write and no `podman generate systemd` output to keep in sync.
+Run it from the `deploy/` directory you cloned or copied to. Quadlet generates
+the systemd service from the `.container` file, so there is no unit to
+hand-write and no `podman generate systemd` output to keep in sync. Step 1
+already pulled the image, so `start` comes up immediately instead of racing a
+download against the unit's start timeout.
 
 Install it as committed and do not edit `Image=`. It has to stay a floating
 tag or the server stops receiving deploys — the reasoning is written out above
@@ -187,6 +267,20 @@ on its own does not prove the site is reachable from outside. It says so.
 
 Re-run it any time you are unsure whether the running version is current —
 that is the question it exists to answer.
+
+### 8. Open it in a browser and say something
+
+The one thing `preflight.sh` cannot check is the thing the game is for. A 200
+from `https://game.example.fi/` proves the bytes are served; it does not prove
+the browser will hand over a microphone. Open the site on a real device, start
+a round, and confirm speech recognition actually fires — see the smoke test in
+[TESTING.md](../TESTING.md).
+
+If the page loads but the microphone never activates, check the browser
+console for a CSP violation before suspecting the hardware. A duplicated
+`Content-Security-Policy` — one from the container, one from a global `header`
+block in the host Caddyfile — is intersected by the browser, and the failure
+looks nothing like a header problem. That is what step 4 is warning about.
 
 ## Verifying a deploy
 
