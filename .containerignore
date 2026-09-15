@@ -1,0 +1,7 @@
+# Only the four files the browser actually loads belong in the image.
+.git
+.github
+test
+deploy/README.md
+deploy/say-it-once.container
+*.md
