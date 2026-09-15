@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Called by release.yml, so an image can never be published ahead of the
+  # tests that vet it. Two independent workflows would race.
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Stands in for a linter. There is no package.json and nothing to
+      # install, and this catches the class of error that actually ships.
+      - name: Syntax-check every script
+        run: |
+          node --check js/matching.js
+          node --check js/categories.js
+          node --check js/game.js
+
+      # Note the glob: `node --test test/` fails on current Node, which
+      # resolves the directory as a module. Passing files works.
+      - name: Unit tests and category data validation
+        run: node --test test/*.test.js
+
+      # Also runs `caddy validate` inside the build, so a Caddyfile syntax
+      # error fails here rather than on the server. Worth doing on pull
+      # requests, where release.yml does not run.
+      - name: Build the image
+        run: docker build -f Containerfile -t say-it-once:ci .
+
+      - name: Serve it and check the files and headers
+        run: |
+          docker run -d --name ci -p 8080:8080 say-it-once:ci
+
+          for _ in $(seq 1 20); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8080/; then break; fi
+            sleep 1
+          done
+
+          for f in / /css/styles.css /js/matching.js /js/categories.js /js/game.js; do
+            echo "checking $f"
+            curl -fsS -o /dev/null "http://127.0.0.1:8080$f"
+          done
+
+          headers=$(curl -fsS -D- -o /dev/null http://127.0.0.1:8080/)
+          echo "$headers"
+
+          if ! printf '%s' "$headers" | grep -qi 'content-security-policy'; then
+            echo "CSP header is missing"; exit 1
+          fi
+          # Written as an if rather than `grep && { exit 1; }`: under bash -e a
+          # grep that finds nothing returns 1 and would fail the step on the
+          # success path, which is exactly the case this check is here for.
+          if printf '%s' "$headers" | grep -qi '^server:'; then
+            echo "Server header should be suppressed"; exit 1
+          fi
+
+          docker logs ci
