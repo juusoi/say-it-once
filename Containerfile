@@ -17,7 +17,11 @@ EXPOSE 8080
 # No HEALTHCHECK here on purpose. podman builds OCI images by default and
 # silently ignores the instruction ("HEALTHCHECK is not supported for OCI
 # image format and will be ignored"), which is worse than having none: it
-# looks like protection that is not there, and podman auto-update rolls back
-# to the previous image only if the new container fails to come up healthy.
+# looks like protection that is not there.
+#
 # The check is declared in deploy/say-it-once.container instead, where it
-# always runs regardless of image format.
+# always runs regardless of image format -- and, crucially, where it sits next
+# to the Notify=healthy that makes podman auto-update actually roll back on a
+# failed one. Declaring the check is only half of it; without that key a
+# container that starts and then fails its check is still reported to systemd
+# as a successful start. The unit comments spell this out.
