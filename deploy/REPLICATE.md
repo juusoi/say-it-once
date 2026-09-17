@@ -56,11 +56,24 @@ Everything between the markers goes to the agent verbatim.
 
     ### Containerfile
 
-    Multi-stage if there is a build step. **Do not add a `HEALTHCHECK`
-    instruction.** podman builds OCI images by default and silently ignores it
-    ("HEALTHCHECK is not supported for OCI image format and will be ignored"),
-    which is worse than having none because it reads as protection. The check
-    goes in the Quadlet unit.
+    Multi-stage if there is a build step. **Put the health check in the Quadlet
+    unit, not in a `HEALTHCHECK` instruction** — `HealthCmd=` overrides an
+    image-level check, so declaring both leaves two sources of truth with the
+    unit silently winning, and the keys that make the check gate a deploy
+    (`Notify=healthy`, `HealthOnFailure=`) exist only in the unit. One
+    declaration, next to the thing that acts on it.
+
+    Two caveats worth carrying to a new app:
+
+    - If the image is *also* run by something that does not carry the unit
+      (compose with `depends_on: condition: service_healthy`, bare
+      `podman run`, a different host), an in-image `HEALTHCHECK` earns its
+      place. Declare it there and leave the Quadlet `Health*` keys off, or
+      accept that the unit's keys win on this host.
+    - `podman build` does silently drop `HEALTHCHECK` ("not supported for OCI
+      image format and will be ignored"); BuildKit — `docker buildx`,
+      `docker/build-push-action` — records it. Check which one builds the app
+      before relying on either behaviour.
 
     ### CI (GitHub Actions)
 

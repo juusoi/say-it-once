@@ -494,9 +494,12 @@ update.
 Two things have to be true for that, and both are easy to get half-right:
 
 - The health check has to be in the **Quadlet unit**, not the Containerfile.
-  podman builds OCI images by default and silently ignores a `HEALTHCHECK`
-  instruction, so putting it there would look like protection without being
-  any.
+  Not because an image-level `HEALTHCHECK` would be ignored — this image is
+  built by BuildKit, which records it, and podman honours it on pull — but
+  because `HealthCmd=` overrides the image's, so declaring both leaves two
+  sources of truth with the unit silently winning, and because the keys that
+  make the check gate anything (`Notify=healthy`, `HealthOnFailure=`) exist
+  only in the unit.
 - The unit has to set **`Notify=healthy`**. Auto-update decides an update failed
   by restarting the unit and reading systemd's verdict, and systemd's verdict
   comes from the READY message; podman-auto-update(1) says plainly that
