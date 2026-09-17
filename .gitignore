@@ -9,3 +9,7 @@
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# Claude Code per-machine overrides. Only the .local. file: a checked-in
+# .claude/settings.json is the shareable half and should stay trackable.
+.claude/settings.local.json
