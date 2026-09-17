@@ -529,3 +529,13 @@ open http://localhost:8080
 `localhost` is a trustworthy origin, so speech recognition works here and the
 full smoke test in [TESTING.md](../TESTING.md) applies.
 
+## Reusing this pattern elsewhere
+
+This document is the pattern with say-it-once's specifics baked in. Two
+companion documents generalise it:
+
+- [REPLICATE.md](REPLICATE.md) — a prompt that reproduces the repo-side half
+  (Containerfile, CI, rollback workflow, Quadlet unit) in another repository,
+  plus what to check in the result.
+- [HOST-SETUP.md](HOST-SETUP.md) — the server-side half with placeholders, for
+  a box that is not this one.
