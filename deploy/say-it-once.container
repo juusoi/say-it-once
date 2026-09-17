@@ -75,10 +75,13 @@ PublishPort=127.0.0.1:8080:8080
 # as systemd and auto-update are concerned.
 Notify=healthy
 
-# The check lives here rather than in the image because podman builds OCI
-# images by default and silently drops a HEALTHCHECK instruction ("HEALTHCHECK
-# is not supported for OCI image format and will be ignored"). Declared here it
-# always runs, whatever the image format.
+# The check lives here rather than in the image because HealthCmd= overrides
+# any image-level HEALTHCHECK, so declaring both would leave two sources of
+# truth with this one silently winning -- and because the keys that give the
+# check teeth (Notify=healthy above, HealthOnFailure below, TimeoutStartSec)
+# exist only here. Not because an image-level check would be dropped: this
+# image is built by BuildKit, which records HEALTHCHECK, and podman honours it.
+# See the Containerfile comment.
 #
 # HealthInterval is on the *startup* path now: with Notify=healthy, READY
 # arrives at the first passing check, so this value is roughly how long every
