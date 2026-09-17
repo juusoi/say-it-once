@@ -2,6 +2,8 @@
 .git
 .github
 test
-deploy/README.md
 deploy/say-it-once.container
-*.md
+# **/*.md rather than *.md: the latter matches only the repo root, so every doc
+# added under deploy/ would otherwise have to be listed here by hand -- and a
+# missed one lands in the published image without anything complaining.
+**/*.md
