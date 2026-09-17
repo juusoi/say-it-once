@@ -11,13 +11,21 @@ push to main → Actions: CI → build → ghcr.io/juusoi/say-it-once:latest
                                             ▼
           podman-auto-update.timer → pull → restart → health check
                                             │              │
-                                            │       unhealthy → roll back
+                                            │       never healthy → roll back
                                             ▼
     host Caddy (TLS) → reverse_proxy 127.0.0.1:8080 → container Caddy → /srv
 ```
 
 Nothing pushes *to* the server, so no SSH key or deploy credential ever leaves
 GitHub.
+
+That `roll back` edge is not automatic podman behaviour you get for free — it
+works because the unit sets `Notify=healthy`, which withholds the systemd READY
+message until the health check passes. Auto-update judges an update by whether
+restarting the unit succeeded, and systemd judges that by READY, so a new image
+that never goes healthy fails its start and auto-update restores the previous
+one. Without that key a broken-but-running image is reported as a clean start
+and nothing rolls back. It is checked in step 7.
 
 ## Why HTTPS is not optional
 
@@ -44,17 +52,26 @@ work, and each one fails in a way that is hard to read backwards from.
 ### podman has to have Quadlet, and rootless has to actually work
 
 ```sh
-podman --version                                          # 4.4 or newer
+podman --version                                          # 5.0 or newer
 systemctl --user list-unit-files podman-auto-update.timer # must be listed
 podman run --rm docker.io/library/alpine true             # must exit 0
 ```
+
+Two separate version floors hide behind that first line.
 
 Quadlet — the thing that turns `say-it-once.container` into a systemd service
 — arrived in podman 4.4. On anything older the `.container` file is simply
 ignored: `daemon-reload` succeeds, `systemctl --user start say-it-once` says
 `Unit say-it-once.service not found`, and nothing anywhere explains why.
-Debian 12's 4.3.1 is the usual way to hit that; Ubuntu 24.04 and later, Debian
-13 and current Fedora all ship something new enough.
+Debian 12's 4.3.1 is the usual way to hit that.
+
+`Notify=healthy` arrived in podman **5.0**, and that is the real floor for this
+unit. On 4.4–4.x everything appears to work — the unit starts, the site serves,
+the container reports healthy — but the key is unknown, the health check stops
+gating the deploy, and automatic rollback is gone. That is the failure this
+whole design is built to avoid, so treat 5.0 as the requirement rather than the
+nicety. Ubuntu 24.04 and later, Debian 13 and current Fedora all ship something
+new enough.
 
 `podman-auto-update.timer` comes from the same package. If it is not listed,
 the entire pull-on-a-timer design has nothing to run it.
@@ -202,6 +219,10 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/   # 200
 podman inspect --format '{{.State.Health.Status}}' systemd-say-it-once
 ```
 
+`start` taking a few seconds is expected, not a hang: `Notify=healthy` means
+systemd waits for the first passing health check before calling the unit
+started. Measured on the published image, healthy about 4 s in.
+
 ### 4. Add one site block to the existing Caddyfile
 
 Do not replace the host Caddyfile — add to it:
@@ -272,27 +293,49 @@ systemctl --user daemon-reload
 systemctl --user enable --now podman-prune.timer
 ```
 
+The image this prunes is the one automatic rollback would restore: once
+auto-update moves on, the superseded image is untagged and therefore dangling.
+Not a conflict in practice — rollback happens within seconds of a bad update,
+and this runs weekly — but it does mean the local copy of a *previously good*
+image is not a rollback mechanism you can rely on days later. Both documented
+rollback paths are registry-side for that reason.
+
 ### 7. Check the setup took
 
 Every step above fails quietly when it fails: the site keeps serving whatever
 it already has, no unit fails, nothing is logged, and the only symptom is that
-a merge to main never shows up. Four commands cover it:
+a merge to main never shows up. Five commands cover it:
 
 ```sh
 podman auto-update --dry-run                           # this container, Updated=false
 systemctl --user list-timers podman-auto-update.timer  # NEXT within ~5 min
 loginctl show-user "$USER" --property=Linger           # Linger=yes
 curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/   # 200
+
+# Must print --sdnotify=healthy:
+systemctl --user show say-it-once -p ExecStart | grep -o -- '--sdnotify=[a-z]*'
 ```
 
-`--dry-run` is the one that matters most, and it is the answer to "is the
-running image current?". It walks the same pull path the timer does, so it
+`--dry-run` is the one to reach for day to day: it answers "is the running
+image current?" directly. It walks the same pull path the timer does, so it
 also catches the GHCR package going private — a 401 surfaces as an error
 rather than as silence. `Updated=false` means current; `pending` means the
 timer has not run yet.
 
 `NEXT` showing tomorrow rather than minutes from now means the timer drop-in
 in step 5 did not take, and deploys will land up to 24 h late.
+
+The `--sdnotify` check is the one that is invisible from every other angle. If
+it prints `--sdnotify=conmon` — an old podman that does not know
+`Notify=healthy`, or an edited unit — the site still serves, the container still
+reports healthy, `--dry-run` still passes, and nothing else in this list
+notices. The loss shows up exactly once: the day a broken image ships and stays.
+
+It reads the unit Quadlet actually generated, so it works before the first start
+and does not depend on an inspect field name. Read it from `show -p ExecStart`
+rather than `systemctl --user cat`: `cat` includes the comments, and the comment
+explaining this key mentions `--sdnotify=conmon`, so a plain grep over it
+matches both and tells you nothing.
 
 None of this touches the public URL, so passing it does not prove the site is
 reachable from outside. That is step 8.
@@ -337,6 +380,55 @@ To force a check instead of waiting:
 podman auto-update --dry-run     # what would change
 podman auto-update               # do it now
 ```
+
+### Proving the rollback works
+
+Worth doing once, on install and after any podman upgrade. Automatic rollback is
+the load-bearing claim in this document, and an untested one is indistinguishable
+from an absent one — the failure mode it guards against is silent, so silence
+proves nothing either way.
+
+The drill is to break the health check on purpose and confirm the unit *fails*
+rather than reporting success. Point `HealthCmd` at a port nothing listens on, in
+the installed copy of the unit only — never in the committed one:
+
+```sh
+u=~/.config/containers/systemd/say-it-once.container
+cp "$u" /tmp/say-it-once.container.bak
+sed -i 's|http://127.0.0.1:8080/|http://127.0.0.1:9/|' "$u"
+systemctl --user daemon-reload
+time systemctl --user restart say-it-once      # expect FAILURE in well under a minute
+systemctl --user show say-it-once -p Result    # expect Result=exit-code
+```
+
+**A failure here is the pass condition.** A non-zero exit from `restart`, with
+`Result=exit-code` and `status=137/n/a` in the journal, means the gate is
+working: the check failed `HealthRetries` times, `HealthOnFailure=kill` took the
+container down, and the unit's start failed. That is exactly the signal
+`podman auto-update` reads to decide an update failed and to restore the
+previous image. Measured here at about 7 s.
+
+If `restart` instead returns success in under a second, leaving a container that
+`podman ps` shows as `unhealthy`, then the gate is not there — a broken deploy
+would ship and stay. Check step 7's `--sdnotify` line and the podman version.
+
+Restore, stopping cleanly first. Skipping the `stop` and `reset-failed` will
+have `restart` pick up the tail of the failed job and report a failure that
+looks like the restore not working:
+
+```sh
+cp /tmp/say-it-once.container.bak "$u"
+systemctl --user stop say-it-once
+systemctl --user reset-failed say-it-once
+systemctl --user daemon-reload
+systemctl --user restart say-it-once
+curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/   # 200
+podman inspect --format '{{.State.Health.Status}}' systemd-say-it-once  # healthy
+```
+
+The drill covers the half that was missing and easy to get wrong — whether an
+unhealthy container fails the unit. Given that, the restore-previous-image half
+is podman's own documented behaviour.
 
 ## Rolling back
 
@@ -395,12 +487,34 @@ Because it re-tags rather than rebuilds, a rollback also carries that release's
 `deploy/Caddyfile` and headers — correct for a rollback, and worth remembering
 when reasoning about a header change.
 
-**Automatic path — a bad image never sticks.** If a new image starts but fails
-its health check, podman restores the previous one by itself. That is the whole
-reason the health check is declared in the Quadlet unit: podman builds OCI
-images by default and silently ignores a `HEALTHCHECK` instruction in the
-Containerfile, so putting it there would look like protection without being
-any.
+**Automatic path — a bad image never sticks.** If a new image starts but never
+goes healthy, podman restores the previous one by itself, within seconds of the
+update.
+
+Two things have to be true for that, and both are easy to get half-right:
+
+- The health check has to be in the **Quadlet unit**, not the Containerfile.
+  podman builds OCI images by default and silently ignores a `HEALTHCHECK`
+  instruction, so putting it there would look like protection without being
+  any.
+- The unit has to set **`Notify=healthy`**. Auto-update decides an update failed
+  by restarting the unit and reading systemd's verdict, and systemd's verdict
+  comes from the READY message; podman-auto-update(1) says plainly that
+  "without that, restarting the systemd unit may succeed even if the container
+  has failed shortly after". Quadlet's default sends READY when the container
+  process launches, which reports a broken image as a clean start.
+
+The rollback is therefore not triggered by the container being *labelled*
+unhealthy — systemd is never told that. It is triggered by the unit's start
+failing. Two things can make it fail, and it is worth knowing which:
+
+- `HealthOnFailure=kill` takes the container down once the check has failed
+  `HealthRetries` times, so `podman run` exits 137 and the start fails with
+  `Result=exit-code`. This is the normal path and it is fast — measured at
+  about 7 s with the check pointed at a dead port.
+- `TimeoutStartSec` (90 s) is the backstop, for an image that hangs rather than
+  failing. It is set explicitly in the unit for that reason, not as a
+  formality.
 
 ## Testing the image locally
 
@@ -414,3 +528,4 @@ open http://localhost:8080
 
 `localhost` is a trustworthy origin, so speech recognition works here and the
 full smoke test in [TESTING.md](../TESTING.md) applies.
+

@@ -7,11 +7,22 @@
 #   systemctl --user start say-it-once
 #
 # Runs rootless under a normal user. See deploy/README.md.
+#
+# Needs podman 5.0 or newer, for Notify=healthy. On 4.4-4.x Quadlet works and
+# this unit starts, but the health check below stops gating the deploy and
+# auto-update loses its rollback -- silently, which is the one failure this
+# file exists to prevent. See the Notify= comment.
 
 [Unit]
 Description=say-it-once — static site behind the host Caddy
-After=network-online.target
-Wants=network-online.target
+
+# Deliberately no After=/Wants=network-online.target. That is a *system*
+# target, and this is a *user* unit: systemd does not support ordering a user
+# service against a system target, so the line reads as protection without
+# being any. On several distros the user-level network-online.target never
+# activates at all. Quadlet already orders generated user units after
+# podman-user-wait-network-online.service, which polls until the real thing is
+# up -- see containers/podman#24637.
 
 [Container]
 # INVARIANT: this must stay a floating tag. Never a sha-<commit> tag, never a
@@ -42,16 +53,61 @@ AutoUpdate=registry
 # expected and harmless: the host handles HTTP/2 with the client.)
 PublishPort=127.0.0.1:8080:8080
 
-# The health check lives here rather than in the image because podman builds
-# OCI images by default and silently drops a HEALTHCHECK instruction. It is
-# load-bearing: `podman auto-update` restores the previous image only when the
-# new container fails to come up healthy, so without this a broken deploy
-# stays broken.
-HealthCmd=wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1
-HealthInterval=30s
-HealthTimeout=5s
-HealthStartPeriod=10s
+# This is what gives the health check below its teeth, and it is easy to leave
+# out and never notice.
+#
+# `podman auto-update` decides an update failed by restarting the unit and
+# looking at whether systemd reported the start as successful -- and systemd
+# only knows that from the READY message over SDNOTIFY. podman-auto-update(1)
+# is explicit: "Without that, restarting the systemd unit may succeed even if
+# the container has failed shortly after."
+#
+# Quadlet's default is Notify=false, i.e. --sdnotify=conmon, which sends READY
+# the moment the container *process* launches, health be damned. Under that
+# default a broken image that still starts -- Caddy boots, serves 500s or an
+# empty /srv -- is reported to systemd as a clean start, auto-update calls it a
+# success, and nothing rolls back. The health check still runs and still marks
+# the container unhealthy; nothing acts on it, because Restart= reacts to the
+# process exiting, not to a health state.
+#
+# Notify=healthy withholds READY until podman's health check first passes, so
+# "did not come up healthy" and "failed to start" become the same event as far
+# as systemd and auto-update are concerned.
+Notify=healthy
+
+# The check lives here rather than in the image because podman builds OCI
+# images by default and silently drops a HEALTHCHECK instruction ("HEALTHCHECK
+# is not supported for OCI image format and will be ignored"). Declared here it
+# always runs, whatever the image format.
+#
+# HealthInterval is on the *startup* path now: with Notify=healthy, READY
+# arrives at the first passing check, so this value is roughly how long every
+# good deploy and every reboot takes to report started. 30s was too slow for
+# that; 10s is a wget against loopback, which costs nothing even on one CPU.
+#
+# No HealthStartPeriod, because Caddy is serving in well under a second -- not
+# because the setting is inert. It suppresses the starting -> unhealthy
+# transition, and HealthOnFailure=kill below acts on exactly that transition,
+# so on a slower-starting app omitting it means the first few checks fail
+# during normal boot, the container is killed, and the unit never comes up.
+# Anything with a real warm-up needs it; this does not. Measured on the
+# published image: healthy about 4s after `systemctl --user start`.
+HealthCmd=wget -q -O /dev/null http://127.0.0.1:8080/
+HealthInterval=10s
+HealthTimeout=3s
 HealthRetries=3
+
+# Two jobs. The obvious one is a container that started healthy and wedged
+# later: without this it is marked unhealthy and left running for ever.
+# `kill` is the action podman documents as integrating best with systemd -- it
+# stops the container, and Restart=always below brings it back.
+#
+# The less obvious one is that this is also what makes a *bad deploy* fail
+# fast. Killing the container makes `podman run` exit 137, so the start fails
+# with Result=exit-code in a few seconds rather than waiting out
+# TimeoutStartSec. Measured with a health command pointed at a dead port:
+# `systemctl --user start` returned 1 after about 7s.
+HealthOnFailure=kill
 
 ReadOnly=true
 NoNewPrivileges=true
@@ -69,6 +125,24 @@ Volume=say-it-once-config:/config
 
 [Service]
 Restart=always
+
+# The backstop on a bad deploy, and set explicitly because Notify=healthy is
+# what makes it load-bearing at all. systemd is never told "unhealthy", only
+# "READY never arrived", so without some bound a new image that hangs instead
+# of failing would sit in `activating` indefinitely and auto-update would never
+# reach its rollback.
+#
+# In practice HealthOnFailure=kill above gets there first -- a check that fails
+# outright takes the container down in seconds. This covers the cases it does
+# not: a health command that hangs (HealthTimeout caps each attempt, but a
+# wedged image can keep restarting inside the start job) or a container that
+# never reaches the point of running the check.
+#
+# Auto-update pulls before it restarts, so no image download happens inside
+# this window -- but the very first `systemctl --user start` does pull if
+# step 1 of the runbook was skipped, which is why that step pre-pulls.
+TimeoutStartSec=90
+
 # The cap is here so that on a 1 GB box a runaway cannot take the host Caddy
 # down with it. 128M is ample, but the number `podman stats` reports will look
 # much closer to it than you expect -- measured on the published image:
