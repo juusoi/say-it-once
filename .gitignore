@@ -1,15 +1,57 @@
-# macOS
-.DS_Store
+# Whitelist-style: ignore everything, then re-include what belongs.
+#
+# The inverse of the usual additive list. Rather than naming what to exclude --
+# which only ever covers the junk someone has already run into -- it names what
+# to include, so anything unlisted stays out by default: editor and tool state,
+# dependency and build directories, scratch output, stray secrets and logs.
+#
+# Two rules make it work, and both are easy to get wrong:
+#
+# 1. `*` has to be followed by `!*/`. A directory matched by `*` is excluded
+#    outright, and no `!` pattern beneath an excluded directory can ever match.
+#    `!*/` keeps directories traversable so the re-includes can reach inside
+#    them. Without it every `!` line below silently does nothing, which is the
+#    usual reason a whitelist .gitignore looks broken.
+#
+# 2. The last matching pattern wins. Re-includes come after the catch-all, and
+#    anything that must stay out regardless of them goes last.
+#
+# The cost is that a file whose pattern is not listed is invisible to
+# `git status`, with no warning. If something just created does not show up,
+# this file is why:
+#
+#   git check-ignore -v <path>
+#
+# Re-including directories wholesale (`!/js/*`) rather than by extension keeps
+# that cost low: new files in an already-listed directory need no edit here.
+# Only a new top-level file, or a new directory, does.
 
-# Editors
-.vscode/
-.idea/
-*.swp
-*~
+# Ignore everything, but stay able to descend into directories.
+*
+!*/
 
-# Playwright MCP scratch output
-.playwright-mcp/
+# Top-level files.
+!/.gitignore
+!/.containerignore
+!/Containerfile
+!/biome.jsonc
+!/index.html
+!/*.md
 
-# Claude Code per-machine overrides. Only the .local. file: a checked-in
-# .claude/settings.json is the shareable half and should stay trackable.
-.claude/settings.local.json
+# The site.
+!/css/*
+!/js/*
+
+# Tests, CI, deploy.
+!/test/*
+!/.github/*.yml
+!/.github/workflows/*.yml
+!/deploy/*
+
+# Kept out even inside the directories re-included above, since the last
+# match wins. The catch-all already covers anything unlisted; these are the
+# ones worth being explicit about.
+.env*
+*.pem
+*.key
+*.log
