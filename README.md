@@ -63,6 +63,7 @@ css/styles.css      all styling
 js/matching.js      normalize / stem / Levenshtein / matchAnswer — pure, no DOM
 js/rules.js         warning-to-card rule, Finnish labels — pure, no DOM
 js/categories.js    the category data — city list, inflected forms, defaults
+js/version.js       the app version constant, shown in the page footer
 js/game.js          state, screen switching, speech, timer, sound/light, game logic
 test/               node:test unit tests; `node --test test/*.test.js`
 Containerfile       Caddy image for the public deploy
@@ -83,9 +84,9 @@ on this, so please don't "modernize" it without addressing them first:
 2. Category data is a `.js` file assigning a `const`, not a `.json` file loaded with `fetch()`,
    because `fetch()` is CORS-blocked on `file://`. Making it real JSON would mean always
    running a local server. The admin screen still shows and accepts real JSON at runtime.
-3. `js/game.js` runs top-level code that needs `matching.js`, `rules.js`, `categories.js` and a
-   parsed DOM. Hence the load order, and hence the scripts staying at the end of `<body>` with
-   no `defer`.
+3. `js/game.js` runs top-level code that needs `matching.js`, `rules.js`, `categories.js`,
+   `version.js` and a parsed DOM. Hence the load order, and hence the scripts staying at the
+   end of `<body>` with no `defer`.
 
 The point of all three is that you can double-click the file and play. That's worth more than
 tidier module syntax on a prototype like this one.
@@ -116,6 +117,22 @@ The **admin screen** shows this JSON in an editable textarea and validates it be
 Edits take effect immediately for the current session. It is reachable only at
 [`#admin`](#known-limitations) — a raw JSON editor that replaces every category and persists
 nothing is a tool for drafting category data, not something to put in front of a player.
+
+## Versioning
+
+The version lives in one place, `js/version.js`, and is shown in the page footer
+(*Versio 1.0.0*). It follows [semantic versioning](https://semver.org); with no public API,
+read the positions as:
+
+- **MAJOR** — a rules change, or anything that invalidates how an existing player understands
+  the game (e.g. two yellow cards → the warning/red-card system).
+- **MINOR** — a new feature that existing play is unaffected by (e.g. the turn timer).
+- **PATCH** — a bug fix or copy/style tweak with no behavioural change.
+
+Bump the constant in the same change that earns it. There is no release pipeline rewriting it:
+a merge to `main` still publishes `:latest` and a `sha-<commit>` image tag, and those identify a
+build rather than a version. `test/version.test.js` asserts the format so the footer cannot
+drift from the documented shape.
 
 ## Known limitations
 

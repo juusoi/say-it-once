@@ -20,6 +20,8 @@ Note the glob. `node --test test/` **fails** — Node resolves the directory as 
   can't silently skip the sweep.
 - `test/rules.test.js` — the warning-to-card decision and its Finnish wording: `cardForWarnings`
   (warning 2 is the red card), `warningCountLabel` (singular only at 1) and `warningMessage`.
+- `test/version.test.js` — the app version is a `MAJOR.MINOR.PATCH` string with no leading
+  zeroes, matching the format the footer shows and README.md documents.
 - `test/categories.test.js` — structural validation of the shipped data: unique lowercase
   canonicals, string `forms`, no form colliding with another answer's canonical, no
   `CITY_ALIASES` key missing from `CITY_LIST`.
@@ -77,7 +79,7 @@ The split into `css/` and `js/` keeps option 1 working: classic `<script src>` a
 tags have no CORS restriction on `file://`. Only ES modules and `fetch()` are blocked there,
 which is exactly why the code avoids both. **If you ever change how the JS is loaded, re-test
 from `file://` specifically** — this failure mode does not appear over localhost. A quick
-non-interactive check that all four scripts ran is that the category dropdown is populated:
+non-interactive check that all five scripts ran is that the category dropdown is populated:
 
 ```sh
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless \
@@ -99,6 +101,8 @@ existing is what makes turn advance and elimination observable.
   before starting a game — not only after.
 - *"+ Lisää pelaaja"* adds a row; the `✕` removes the row it belongs to, not a different one.
 - Starting with fewer than two named players is refused.
+- The footer shows *Versio 1.0.0* (the `APP_VERSION` in `js/version.js`), and it stays visible on
+  every screen — setup, game and winner.
 
 ### 2. The three answer paths — the core of the game
 
