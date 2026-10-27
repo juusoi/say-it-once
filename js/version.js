@@ -11,9 +11,12 @@
 //   MINOR  a new feature that existing play is unaffected by (e.g. the timer)
 //   PATCH  a bug fix or copy/style tweak with no behavioural change
 //
+// Still 0.x: pre-1.0, so the game is not yet considered finished and MINOR
+// bumps may still change how it plays.
+//
 // Bump it here by hand as part of the change; there is no release pipeline
 // rewriting it. See README.md, "Versioning".
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '0.1.0';
 
 // No-op in the browser; a real CommonJS module in Node.
 if(typeof module !== 'undefined') module.exports = { APP_VERSION };

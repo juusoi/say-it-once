@@ -121,7 +121,7 @@ nothing is a tool for drafting category data, not something to put in front of a
 ## Versioning
 
 The version lives in one place, `js/version.js`, and is shown in the page footer
-(*Versio 1.0.0*). It follows [semantic versioning](https://semver.org); with no public API,
+(*Versio 0.1.0*). It follows [semantic versioning](https://semver.org); with no public API,
 read the positions as:
 
 - **MAJOR** — a rules change, or anything that invalidates how an existing player understands
@@ -133,6 +133,9 @@ Bump the constant in the same change that earns it. There is no release pipeline
 a merge to `main` still publishes `:latest` and a `sha-<commit>` image tag, and those identify a
 build rather than a version. `test/version.test.js` asserts the format so the footer cannot
 drift from the documented shape.
+
+Still **0.x** deliberately: pre-1.0 means the game is not yet considered finished, so a MINOR
+bump may still change how it plays.
 
 ## Known limitations
 

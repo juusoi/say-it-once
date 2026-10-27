@@ -101,7 +101,7 @@ existing is what makes turn advance and elimination observable.
   before starting a game — not only after.
 - *"+ Lisää pelaaja"* adds a row; the `✕` removes the row it belongs to, not a different one.
 - Starting with fewer than two named players is refused.
-- The footer shows *Versio 1.0.0* (the `APP_VERSION` in `js/version.js`), and it stays visible on
+- The footer shows *Versio 0.1.0* (the `APP_VERSION` in `js/version.js`), and it stays visible on
   every screen — setup, game and winner.
 
 ### 2. The three answer paths — the core of the game
