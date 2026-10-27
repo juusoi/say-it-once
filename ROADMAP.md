@@ -5,13 +5,15 @@ Nothing here is committed to — it's a menu with the trade-offs written down.
 
 ## Where it stands
 
-The game is playable end to end: setup, turns, yellow cards, elimination, winner. It is
-deployed publicly — a container image built by GitHub Actions, served by Caddy, pulled by the
-server via `podman auto-update`. See [deploy/README.md](deploy/README.md).
+The game is playable end to end: setup, 30-second timed turns, yellow/red card escalation,
+sound/light signals, elimination, winner. It is deployed publicly — a container image built by
+GitHub Actions, served by Caddy, pulled by the server via `podman auto-update`. See
+[deploy/README.md](deploy/README.md).
 
-The first public release also closed items 3, 4 and 5 below. Every city now accepts the form a
-Finnish speaker actually says, the fuzzy fallback no longer accepts near-miss nonsense, and
-the matching logic has unit tests.
+Items 3, 4, 5 and 6 below are done. Every city accepts the form a Finnish speaker actually
+says, the fuzzy fallback no longer accepts near-miss nonsense, the turn timer and warning/card
+escalation are in place with unit tests (`js/matching.js`, `js/rules.js`), and the footer shows
+the semantic version (`js/version.js`).
 
 What's left is dominated by one thing: there are effectively **one and a half categories**.
 That is now the only problem that seriously limits the game.
@@ -117,10 +119,42 @@ tone (green chime, yellow blip, red descent); the light is labelled with text so
 the only signal, and audio fails silently where it is unavailable. The scoreboard now shows a
 warning count, chips and a card label per player, and stays visible through every turn.
 
+### Follow-ups opened up by the timer and sound/light PR
+
+Small gameplay and UX extensions that were deliberately kept out of the initial PR (#10):
+
+- **Mute toggle for Web Audio tones.** Synthesised tones work well around a table, but there is
+  currently no way to silence them in a quiet setting without muting the device — which also
+  affects speech feedback on some mobile browsers. A single toggle on the game screen (keeping
+  the labelled light active either way) covers it.
+- **Configurable or optional turn timer.** `TURN_SECONDS` is a constant (`30`) in `js/game.js`.
+  A selector on the setup screen (e.g. *15 s*, *30 s*, *60 s*, *Ei aikarajaa*) would let a group
+  dial the pressure up for a fast round or turn the clock off for casual play.
+- **Last-seconds countdown urgency.** The timer renders in the same `--ice` colour from `30 s`
+  down to `0 s`. Shifting the timer style (and optionally playing a soft tick) in the final
+  5 seconds lets players feel the deadline without staring at the digits.
+
 ## 7. Internal cleanups
 
-Not urgent, none of it user-visible, listed so it isn't rediscovered from scratch:
+Not urgent, mostly not user-visible, listed so it isn't rediscovered from scratch:
 
+- **Stop an active speech recognizer when a turn advances via manual input.** `stopListening()`
+  is called in `handleTimeout()` and `checkGameOver()`, but not in `startTurn()` or
+  `submitManual()`. If Player A presses the mic (`Kuuntelen…`) and then submits a typed answer
+  before the recognizer finishes, `turnId` advances for Player B while `recognizer` stays live:
+  `#mic-btn` remains stuck pulsing on Player B's turn, `if (recognizer) return;` in
+  `startListening()` ignores Player B's mic press, and any speech captured by the leftover
+  recognizer is dropped by `startedTurn !== turnId`. Calling `stopListening()` inside
+  `startTurn()` fixes all three paths in one place.
+- **Clear `#manual-input` on turn transitions and reset the signal in `startGame()`.**
+  `submitManual()` clears the text field, but if the 30-second timer expires while a player is
+  mid-typing, their half-typed text stays in `#manual-input` for the next player (and across
+  `resetGame()`). Likewise, `startGame()` calls `clearFeedback()` but relies on `resetGame()`
+  having called `showSignal('idle')`.
+- **Skip redundant DOM writes in the timer loop.** `startTimer()` runs a 250 ms `setInterval`
+  and assigns `#timer.textContent` on every tick, mutating the DOM four times per second even
+  when `remaining` has not changed. Also, `handleTimeout()` increments `turnId` once before
+  `issueWarning()` → `nextTurn()` → `startTimer()` increments it a second time.
 - **Convert the inline `onclick=` attributes to `addEventListener`.** This one now has a
   concrete payoff rather than being taste: the deployed CSP needs
   `script-src 'unsafe-inline'` for those ~12 attributes, which makes it close to useless
@@ -130,9 +164,9 @@ Not urgent, none of it user-visible, listed so it isn't rediscovered from scratc
   auth, no cookies, nothing cross-user), which is why it's here and not above.
 - **Add a favicon.** Every page load logs a 404 for `/favicon.ico`, which is noise in a
   console that TESTING.md asks you to check is clean. Two minutes.
-- `giveYellowCard()` decides control flow by **reading a DOM class** to check whether the game
-  ended. A state flag would be honest about what it's actually asking.
-- `checkGameOver()` is called from both `giveYellowCard()` and `nextTurn()`.
+- `checkGameOver()` is called from both `issueWarning()` and `nextTurn()`. (The earlier note
+  here about `giveYellowCard()` reading a DOM class was resolved by PR #10's `gameOver` state
+  flag.)
 - `resetGame()` leaves `players`, `usedAnswers` and the stale name inputs in place, relying on
   `startGame()` to reinitialise everything.
 - Screen switching is hand-rolled in five places; one `showScreen(id)` would replace all of them
@@ -141,6 +175,11 @@ Not urgent, none of it user-visible, listed so it isn't rediscovered from scratc
   the scoreboard is confusing.
 - Admin validation doesn't check that `forms` entries are strings, doesn't reject empty
   `answers`, and doesn't catch duplicate canonicals.
+- **Stale file-count comments.** `README.md` says "All three files end with a `typeof module`
+  guard" right after naming `matching.js`, `rules.js` and `game.js` (four pure files have the
+  guard; `game.js` does not), and `.containerignore`, `deploy/Caddyfile`, and "Deliberately not
+  planned" below still say "four files" from before `css/`, `js/rules.js` and `js/version.js`
+  were split out.
 
 ---
 
