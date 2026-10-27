@@ -40,6 +40,7 @@ jobs:
       - name: Syntax-check every script
         run: |
           node --check js/matching.js
+          node --check js/rules.js
           node --check js/categories.js
           node --check js/game.js
 
@@ -88,7 +89,7 @@ jobs:
             sleep 1
           done
 
-          for f in / /css/styles.css /js/matching.js /js/categories.js /js/game.js; do
+          for f in / /css/styles.css /js/matching.js /js/rules.js /js/categories.js /js/game.js; do
             echo "checking $f"
             curl -fsS -o /dev/null "http://127.0.0.1:8080$f"
           done

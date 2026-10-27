@@ -1,10 +1,18 @@
 // ---------- STATE ----------
+const TURN_SECONDS = 30;
 let CATEGORIES = defaultCategories();
 let selectedCategoryIndex = 0;
 let players = [];
 let currentIndex = 0;
 let usedAnswers = new Set();
 let recognizer = null;
+let gameOver = false;
+let turnTimer = null;
+// Bumped every time a turn begins. A speech result captured for an older turn
+// carries that turn's id and is ignored, so a late result cannot be counted
+// twice -- once by the timeout and once by the answer it eventually returns.
+let turnId = 0;
+let audioCtx = null;
 
 // ---------- SETUP SCREEN ----------
 function renderCategorySelect(){
@@ -62,7 +70,7 @@ function startGame(){
   selectedCategoryIndex = parseInt(document.getElementById('category-select').value, 10);
   const inputs = [...document.querySelectorAll('#player-inputs input')];
   players = inputs.map(i => i.value.trim()).filter(Boolean)
-    .map(name => ({name, yellowCards: 0, eliminated:false}));
+    .map(name => ({name, warnings: 0, eliminated:false}));
   if(players.length < 2){
     alert("Lisää vähintään kaksi pelaajaa.");
     return;
@@ -73,19 +81,22 @@ function startGame(){
   }
   currentIndex = 0;
   usedAnswers = new Set();
+  gameOver = false;
   document.getElementById('setup-screen').classList.add('hidden');
   document.getElementById('game-screen').classList.remove('hidden');
   document.getElementById('winner-screen').classList.add('hidden');
   document.getElementById('game-limitation-note').textContent =
     `Kategoria: ${CATEGORIES[selectedCategoryIndex].name}. Taivutusmuodot tunnistetaan yleensä automaattisesti — sano vastaus siinä muodossa kuin se luontevasti tulee.`;
   clearFeedback();
-  renderScoreboard();
-  renderCurrentPlayer();
+  startTurn();
   checkSpeechSupport();
 }
 
 function resetGame(){
+  clearTimer();
+  gameOver = false;
   clearFeedback();
+  showSignal('idle');
   document.getElementById('winner-screen').classList.add('hidden');
   document.getElementById('setup-screen').classList.remove('hidden');
   renderCategorySelect();
@@ -162,11 +173,15 @@ const SPEECH_ERRORS = {
 function startListening(){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!SR) return;
+  // The mic press is a user gesture, so it is where the AudioContext is
+  // allowed to be created or resumed. Browsers block autoplay otherwise.
+  ensureAudio();
   // Already listening: constructing a second recognizer over the live one and
   // calling start() again throws InvalidStateError.
   if(recognizer) return;
   const btn = document.getElementById('mic-btn');
   const hint = document.getElementById('mic-hint');
+  const startedTurn = turnId;
   recognizer = new SR();
   recognizer.lang = 'fi-FI';
   recognizer.interimResults = false;
@@ -176,6 +191,9 @@ function startListening(){
   hint.textContent = "Kuuntelen...";
 
   recognizer.onresult = (event) => {
+    // A result that arrives after the turn has moved on (timeout, another
+    // answer) belongs to a finished turn and must not be scored.
+    if(startedTurn !== turnId) return;
     handleAnswer(pickBestAlternative(event.results[0]));
   };
   // onerror is always followed by onend, which would reset the hint and hide the
@@ -201,9 +219,27 @@ function startListening(){
   }
 }
 
+// Stop an in-flight recognizer without scoring its result. The turn-id guard
+// in onresult already rejects late results; this also releases the mic and
+// resets the button so it does not stay stuck pulsing.
+function stopListening(){
+  if(!recognizer) return;
+  const r = recognizer;
+  recognizer = null;
+  r.onresult = null;
+  r.onend = null;
+  r.onerror = null;
+  try{ r.abort(); } catch(e){ /* already stopped */ }
+  document.getElementById('mic-btn').classList.remove('listening');
+  document.getElementById('mic-hint').textContent = "Paina ja sano vastaus";
+}
+
 function submitManual(){
   const input = document.getElementById('manual-input');
   if(!input.value.trim()) return;
+  // A typed answer is submitted by the same click/keypress gesture the mic
+  // uses, so unlock audio here too.
+  ensureAudio();
   handleAnswer(input.value.trim());
   input.value = "";
 }
@@ -230,38 +266,43 @@ function pickBestAlternative(result){
 
 // ---------- GAME LOGIC ----------
 function handleAnswer(raw){
+  if(gameOver) return;
   const answer = matchAnswer(raw, currentAnswers());
-  const feedback = document.getElementById('feedback');
 
   if(!answer){
-    feedback.className = 'feedback invalid';
-    feedback.textContent = `"${raw}" ei kelpaa tässä kategoriassa! 🟨 Keltainen kortti.`;
-    giveYellowCard();
-    renderScoreboard();
+    issueWarning(`"${raw}" ei kelpaa tässä kategoriassa!`);
     return;
   }
 
   if(usedAnswers.has(answer)){
-    feedback.className = 'feedback dup';
-    feedback.textContent = `${capitalize(answer)} on jo sanottu! 🟨 Keltainen kortti.`;
-    giveYellowCard();
-  } else {
-    usedAnswers.add(answer);
-    feedback.className = 'feedback ok';
-    feedback.textContent = `${capitalize(answer)} hyväksytty.`;
-    nextTurn();
+    issueWarning(`${capitalize(answer)} on jo sanottu!`);
+    return;
   }
-  renderScoreboard();
+
+  usedAnswers.add(answer);
+  document.getElementById('feedback').className = 'feedback ok';
+  document.getElementById('feedback').textContent = `${capitalize(answer)} hyväksytty.`;
+  signal('ok');
+  nextTurn();
 }
 
-function giveYellowCard(){
+// The single path every warning takes, whatever caused it: invalid answer,
+// repeat, or timeout. Bumping the count, deciding the card, eliminating on red
+// and starting the next turn all happen here so the three sources cannot drift.
+function issueWarning(prefix){
+  if(gameOver) return;
   const p = players[currentIndex];
-  p.yellowCards += 1;
-  if(p.yellowCards >= 2){
-    p.eliminated = true;
-  }
+  p.warnings += 1;
+  const card = cardForWarnings(p.warnings);
+  if(card === 'red') p.eliminated = true;
+
+  const feedback = document.getElementById('feedback');
+  feedback.className = 'feedback ' + (card === 'red' ? 'red' : 'warn');
+  feedback.textContent = warningMessage(prefix, p.warnings);
+  signal(card === 'red' ? 'red' : 'warn');
+  renderScoreboard();
   checkGameOver();
-  if(!document.getElementById('winner-screen').classList.contains('hidden')) return;
+  if(gameOver) return;
   nextTurn();
 }
 
@@ -271,12 +312,15 @@ function nextTurn(){
   do{
     currentIndex = (currentIndex + 1) % players.length;
   } while(players[currentIndex].eliminated);
-  renderCurrentPlayer();
+  startTurn();
 }
 
 function checkGameOver(){
   const active = players.filter(p=>!p.eliminated);
   if(active.length <= 1){
+    gameOver = true;
+    clearTimer();
+    stopListening();
     document.getElementById('game-screen').classList.add('hidden');
     const winnerScreen = document.getElementById('winner-screen');
     winnerScreen.classList.remove('hidden');
@@ -284,6 +328,119 @@ function checkGameOver(){
       ? `🏆 ${active[0].name} voitti!`
       : `Peli päättyi tasapeliin.`;
   }
+}
+
+// ---------- TURN TIMER ----------
+// Every turn begins here, and only here: at game start, after an accepted
+// answer, and after a warning that advances the turn. That single entry point
+// is what keeps the countdown in step with whose turn it is.
+function startTurn(){
+  renderCurrentPlayer();
+  startTimer();
+}
+
+function startTimer(){
+  clearTimer();
+  turnId += 1;
+  if(gameOver) return;
+  const deadline = Date.now() + TURN_SECONDS * 1000;
+  renderTimer(TURN_SECONDS);
+  turnTimer = setInterval(() => {
+    const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    renderTimer(remaining);
+    if(remaining <= 0) handleTimeout();
+  }, 250);
+}
+
+function clearTimer(){
+  if(turnTimer !== null){
+    clearInterval(turnTimer);
+    turnTimer = null;
+  }
+}
+
+function handleTimeout(){
+  if(gameOver) return;
+  clearTimer();
+  // Cut the mic and move to a fresh turn before warning, so a recognition
+  // result still in flight is rejected by the turn-id guard.
+  stopListening();
+  turnId += 1;
+  issueWarning("Aika loppui!");
+}
+
+function renderTimer(seconds){
+  document.getElementById('timer').textContent = `${seconds} s`;
+}
+
+// ---------- SIGNAL (SOUND + LIGHT) ----------
+// The light is updated before the sound and independently of it, so it shows
+// even when audio is unavailable.
+function signal(kind){
+  showSignal(kind);
+  playTone(kind);
+}
+
+function showSignal(kind){
+  const el = document.getElementById('signal');
+  el.className = 'signal ' + kind;
+  const labels = {
+    idle: 'Valmiina',
+    ok: 'Oikein',
+    warn: 'Keltainen kortti',
+    red: 'Punainen kortti — pois pelistä'
+  };
+  document.getElementById('signal-label').textContent = labels[kind];
+}
+
+// Create or resume the AudioContext. Must be reached from a user gesture
+// (mic button or submit), or browsers will refuse to start playback.
+function ensureAudio(){
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if(!Ctx) return;
+    if(!audioCtx) audioCtx = new Ctx();
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+  } catch(e){
+    audioCtx = null;
+  }
+}
+
+// Tones are synthesised with oscillators -- no audio files, no libraries.
+// Everything is wrapped so a missing or blocked AudioContext fails silently,
+// leaving the light as the signal.
+function playTone(kind){
+  try{
+    if(!audioCtx) return;
+    const now = audioCtx.currentTime;
+    if(kind === 'ok'){
+      // A short two-note rising chime.
+      tone(now, 660, 0.12, 0.18);
+      tone(now + 0.1, 880, 0.14, 0.18);
+    } else if(kind === 'warn'){
+      // A single flat warning blip.
+      tone(now, 330, 0.28, 0.22, 'square');
+    } else if(kind === 'red'){
+      // A distinct two-note descent, lower and longer.
+      tone(now, 300, 0.2, 0.24, 'sawtooth');
+      tone(now + 0.18, 160, 0.36, 0.24, 'sawtooth');
+    }
+  } catch(e){
+    /* audio is best-effort */
+  }
+}
+
+function tone(startAt, freq, duration, gain, type){
+  const osc = audioCtx.createOscillator();
+  const amp = audioCtx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.setValueAtTime(freq, startAt);
+  amp.gain.setValueAtTime(0, startAt);
+  amp.gain.linearRampToValueAtTime(gain, startAt + 0.02);
+  amp.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+  osc.connect(amp).connect(audioCtx.destination);
+  osc.start(startAt);
+  osc.stop(startAt + duration + 0.02);
 }
 
 function renderCurrentPlayer(){
@@ -308,17 +465,35 @@ function renderScoreboard(){
 
     const nameEl = document.createElement('div');
     nameEl.className = 'p-name';
-    nameEl.textContent = p.name + (p.eliminated ? ' — pois pelistä' : '');
+    nameEl.textContent = p.name;
 
+    const metaEl = document.createElement('div');
+    metaEl.className = 'p-meta';
+
+    const countEl = document.createElement('span');
+    countEl.className = 'p-warnings';
+    countEl.textContent = warningCountLabel(p.warnings);
+
+    // Two chips, one per warning: the first fills yellow, the second red. The
+    // text label above is what makes the colour readable without relying on it.
     const cardsEl = document.createElement('div');
     cardsEl.className = 'p-cards';
+    const card = cardForWarnings(p.warnings);
     for(let i=0;i<2;i++){
       const chip = document.createElement('div');
-      chip.className = i < p.yellowCards ? 'yellow-chip' : 'empty-chip';
+      const filled = i < p.warnings;
+      chip.className = 'card-chip ' + (!filled ? 'empty' : (i === 0 ? 'yellow' : 'red'));
       cardsEl.appendChild(chip);
     }
 
-    row.append(nameEl, cardsEl);
+    const statusEl = document.createElement('span');
+    statusEl.className = 'p-status ' + card;
+    statusEl.textContent = card === 'red' ? '🟥 Punainen — pois pelistä'
+      : card === 'yellow' ? '🟨 Keltainen'
+      : 'Ei kortteja';
+
+    metaEl.append(countEl, cardsEl, statusEl);
+    row.append(nameEl, metaEl);
     board.appendChild(row);
   });
 }
