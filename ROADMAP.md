@@ -103,11 +103,19 @@ It earned its keep immediately. The stem rule in item 3 would have been a guess 
 72-city sweep, and pinning *poro* → *pori* **before** touching the threshold is what made the
 trade in item 4 visible in the diff instead of discovered later in a game.
 
-## 6. A turn timer
+## 6. A turn timer — **done**
 
-Pure gameplay feel. Pressure is most of the fun in this genre, and "you took too long" is a
-natural third way to earn a card. Small and self-contained; worth doing whenever it sounds fun
-rather than at any particular point in the order.
+Pure gameplay feel. A 30-second countdown runs the active player's turn and expires into a
+warning, joining "wrong answer" and "already said" as a third way to earn a card.
+
+The card system changed shape to make room for it. Instead of two yellow cards, a player now
+accrues *warnings*: warning 1 is a yellow card, warning 2 a red card and elimination. All three
+sources — invalid, repeat, timeout — go through one `issueWarning()` path, and the
+warning-to-card decision and its Finnish wording live in `js/rules.js` so `node:test` can cover
+them, the same seam as item 5. Each event also drives a light next to the mic and a Web Audio
+tone (green chime, yellow blip, red descent); the light is labelled with text so colour is not
+the only signal, and audio fails silently where it is unavailable. The scoreboard now shows a
+warning count, chips and a card label per player, and stays visible through every turn.
 
 ## 7. Internal cleanups
 

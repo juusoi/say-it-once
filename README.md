@@ -8,10 +8,12 @@ The UI is entirely in Finnish. This README is in English.
 
 ## Rules
 
-- Each player, in turn, gives one answer belonging to the active category.
-- An answer that has **already been said**, or that **isn't valid for the category**, earns
-  a yellow card. 🟨
-- **Two yellow cards and you're out.**
+- Each player, in turn, gives one answer belonging to the active category, within 30 seconds.
+- An answer that has **already been said**, that **isn't valid for the category**, or that
+  **takes longer than the timer** earns a warning. 🟨
+- **Warning 1 is a yellow card; warning 2 is a red card and you're out.** A correct answer
+  shows a green light and a chime, a warning a yellow light and tone, the red card a distinct
+  red signal.
 - Last player standing wins.
 
 Answers are matched in four tiers: the base form, any hand-written inflected forms, the
@@ -59,18 +61,19 @@ See [deploy/README.md](deploy/README.md) for how that reaches the server.
 index.html          markup for the four screens (setup, admin, game, winner)
 css/styles.css      all styling
 js/matching.js      normalize / stem / Levenshtein / matchAnswer — pure, no DOM
+js/rules.js         warning-to-card rule, Finnish labels — pure, no DOM
 js/categories.js    the category data — city list, inflected forms, defaults
-js/game.js          state, screen switching, speech, game logic
+js/game.js          state, screen switching, speech, timer, sound/light, game logic
 test/               node:test unit tests; `node --test test/*.test.js`
 Containerfile       Caddy image for the public deploy
 deploy/             in-image Caddyfile, Quadlet unit, server runbook
 .github/workflows/  CI and the GHCR release
 ```
 
-`js/matching.js` is separate from `js/game.js` for one reason: `game.js` runs top-level code
-against the DOM and so can never be imported, while the matching logic is pure and is where a
-real bug would hide. Both files end with a `typeof module` guard, which is a no-op in the
-browser and a CommonJS export in Node.
+`js/matching.js` and `js/rules.js` are separate from `js/game.js` for one reason: `game.js`
+runs top-level code against the DOM and so can never be imported, while the matching logic and
+the warning-to-card rule are pure and are where a real bug would hide. All three files end with
+a `typeof module` guard, which is a no-op in the browser and a CommonJS export in Node.
 
 **Deliberately plain: classic `<script>` tags, no modules, no bundler.** Three things depend
 on this, so please don't "modernize" it without addressing them first:
@@ -80,9 +83,9 @@ on this, so please don't "modernize" it without addressing them first:
 2. Category data is a `.js` file assigning a `const`, not a `.json` file loaded with `fetch()`,
    because `fetch()` is CORS-blocked on `file://`. Making it real JSON would mean always
    running a local server. The admin screen still shows and accepts real JSON at runtime.
-3. `js/game.js` runs top-level code that needs `matching.js`, `categories.js` and a parsed
-   DOM. Hence the load order, and hence the scripts staying at the end of `<body>` with no
-   `defer`.
+3. `js/game.js` runs top-level code that needs `matching.js`, `rules.js`, `categories.js` and a
+   parsed DOM. Hence the load order, and hence the scripts staying at the end of `<body>` with
+   no `defer`.
 
 The point of all three is that you can double-click the file and play. That's worth more than
 tidier module syntax on a prototype like this one.

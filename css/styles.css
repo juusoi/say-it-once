@@ -61,7 +61,16 @@
     pointer-events:none; opacity:0.5;
   }
   .turn-label{font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:var(--cream-dim);}
-  .turn-name{font-size:36px;font-weight:700;margin:6px 0 20px;}
+  .turn-name{font-size:36px;font-weight:700;margin:6px 0 8px;}
+  .turn-timer{font-size:22px;font-weight:700;color:var(--ice);margin-bottom:10px;}
+  .signal{display:inline-flex;align-items:center;gap:8px;margin-bottom:14px;font-size:13px;font-weight:600;color:var(--cream-dim);}
+  .signal-dot{width:14px;height:14px;border-radius:50%;background:var(--cream-dim);flex:0 0 auto;}
+  .signal.ok .signal-dot{background:#5fd08a;}
+  .signal.warn .signal-dot{background:var(--card-yellow);}
+  .signal.red .signal-dot{background:var(--danger);}
+  .signal.ok .signal-label{color:#5fd08a;}
+  .signal.warn .signal-label{color:var(--card-yellow);}
+  .signal.red .signal-label{color:var(--danger);}
   .mic-btn{
     width:88px;height:88px;border-radius:50%;background:var(--ice);color:#0f2620;font-size:30px;
     display:flex;align-items:center;justify-content:center;margin:0 auto 16px;border:none;cursor:pointer;
@@ -74,23 +83,29 @@
   .hint{font-size:13px;color:var(--cream-dim);margin-bottom:18px;}
   .manual-row{display:flex;gap:8px;justify-content:center;margin-bottom:6px;}
   .manual-row input{max-width:220px;}
-  .feedback{min-height:52px;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:15px;margin-top:10px;}
+  .feedback{min-height:52px;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:15px;margin-top:10px;text-align:center;}
   .feedback.ok{color:var(--ice);}
-  .feedback.dup{color:var(--card-yellow);}
-  .feedback.invalid{color:var(--cream-dim);}
+  .feedback.warn{color:var(--card-yellow);}
+  .feedback.red{color:var(--danger);}
 
   .scoreboard{display:flex;flex-direction:column;gap:10px;}
-  .player-card{display:flex;align-items:center;justify-content:space-between;background:var(--surface-2);border-radius:12px;padding:12px 14px;border:1px solid transparent;}
+  .player-card{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--surface-2);border-radius:12px;padding:12px 14px;border:1px solid transparent;}
   .player-card.active{border-color:var(--ice);}
   /* Dim eliminated players by colour, not opacity: opacity:0.35 dropped the name
      well below AA contrast and made the scoreboard unreadable for those rows. */
   .player-card.eliminated{background:transparent;border-color:var(--line);}
   .player-card.eliminated .p-name{color:var(--cream-dim);font-weight:500;}
-  .player-card.eliminated .empty-chip{opacity:0.5;}
   .p-name{font-weight:600;font-size:14px;}
+  .p-meta{display:flex;align-items:center;gap:10px;flex:0 0 auto;}
+  .p-warnings{font-size:12px;color:var(--cream-dim);}
   .p-cards{display:flex;gap:4px;}
-  .yellow-chip{width:14px;height:20px;border-radius:3px;background:var(--card-yellow);}
-  .empty-chip{width:14px;height:20px;border-radius:3px;border:1px solid var(--line);}
+  .card-chip{width:14px;height:20px;border-radius:3px;border:1px solid var(--line);}
+  .card-chip.yellow{background:var(--card-yellow);}
+  .card-chip.red{background:var(--danger);}
+  .p-status{font-size:12px;font-weight:600;}
+  .p-status.none{color:var(--cream-dim);}
+  .p-status.yellow{color:var(--card-yellow);}
+  .p-status.red{color:var(--danger);}
 
   .warning{background:rgba(181,83,60,0.15);border:1px solid var(--danger);border-radius:10px;padding:10px 14px;font-size:13px;color:var(--cream);margin-bottom:16px;}
   .limitation{font-size:12px;color:var(--cream-dim);line-height:1.5;margin-top:4px;}

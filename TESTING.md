@@ -18,6 +18,8 @@ Note the glob. `node --test test/` **fails** — Node resolves the directory as 
   load-bearing case is the sweep over all 72 cities in the form a Finnish speaker actually
   says, guarded by a second test that the corpus still matches the city list, so adding a city
   can't silently skip the sweep.
+- `test/rules.test.js` — the warning-to-card decision and its Finnish wording: `cardForWarnings`
+  (warning 2 is the red card), `warningCountLabel` (singular only at 1) and `warningMessage`.
 - `test/categories.test.js` — structural validation of the shipped data: unique lowercase
   canonicals, string `forms`, no form colliding with another answer's canonical, no
   `CITY_ALIASES` key missing from `CITY_LIST`.
@@ -75,7 +77,7 @@ The split into `css/` and `js/` keeps option 1 working: classic `<script src>` a
 tags have no CORS restriction on `file://`. Only ES modules and `fetch()` are blocked there,
 which is exactly why the code avoids both. **If you ever change how the JS is loaded, re-test
 from `file://` specifically** — this failure mode does not appear over localhost. A quick
-non-interactive check that all three scripts ran is that the category dropdown is populated:
+non-interactive check that all four scripts ran is that the category dropdown is populated:
 
 ```sh
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless \
@@ -105,29 +107,56 @@ text input isolates game logic from STT noise; speech gets tested separately in 
 
 | Input | Expected | Watch for |
 |---|---|---|
-| `helsinki` | Accepted, turn passes to B | Message **stays visible** |
-| `helsinki` again | Duplicate → yellow card | Message **stays visible** |
-| `qwertyuiop` | Invalid → yellow card | Message **stays visible** |
+| `helsinki` | Accepted, turn passes to B | Message **stays visible**, green light + chime |
+| `helsinki` again | Duplicate → warning 1 🟨 | Message **stays visible**, yellow light + tone |
+| `qwertyuiop` | Invalid → warning 1 🟨 | Message **stays visible** |
 | `helsingissä` | Accepted — hand-written form | Consonant gradation, k → g |
 | `porvoossa` | Accepted — stem match | No hand-written forms exist for Porvoo |
 | `mäntässä` | Accepted — stem match | Gradation again, tt → t |
-| `salaatti` | Invalid → yellow card | Shares the stem `sal` with *salo*, but `aatti` is not a case ending |
-| `poro` | Invalid → yellow card | Was accepted as *pori* before the fuzzy threshold was tightened |
+| `salaatti` | Invalid → warning 🟨 | Shares the stem `sal` with *salo*, but `aatti` is not a case ending |
+| `poro` | Invalid → warning 🟨 | Was accepted as *pori* before the fuzzy threshold was tightened |
 
 The "stays visible" column is the whole point. Feedback was previously set and wiped in the
 same tick, so **every** message was invisible. If you see a message flash and vanish, that
 regression is back.
 
-### 3. Cards, elimination, winner
+### 3. Cards, escalation, elimination, winner
 
-- Each yellow card fills one chip on that player's scoreboard row.
-- The second card eliminates: row dims to muted text (not a washed-out low-contrast row) and
-  is labelled *pois pelistä*.
+- Each warning fills one chip on that player's scoreboard row, and the row's text count goes
+  from *0 varoitusta* to *1 varoitus* to *2 varoitusta*.
+- The first warning is a yellow card 🟨; the second is a red card 🟥 and eliminates the player.
+- The eliminated row dims to muted text (not a washed-out low-contrast row) and is labelled
+  *🟥 Punainen — pois pelistä*.
 - Turn order skips eliminated players.
-- Last player standing triggers the winner screen; *Uusi peli* returns to setup with no stale
-  feedback message left over.
+- Last player standing triggers the winner screen **and stops the timer**; *Uusi peli* returns
+  to setup with no stale feedback message left over.
 
-### 4. Speech
+### 4. Turn timer
+
+- On starting a game the countdown shows *30 s* next to the current player and ticks down.
+- Let it reach 0 without answering: feedback reads *Aika loppui! 🟨 Keltainen kortti.*, the
+  yellow light and tone fire, and the turn advances with a fresh *30 s*.
+- Time out the **same** player twice (or time out once and give them one bad answer): the second
+  warning is a red card and eliminates them.
+- Press the mic, then let the timer expire while *Kuuntelen…* is showing: the mic button stops
+  pulsing and the mic is released, and a late recognition result does **not** score — the
+  timeout is the only warning.
+- The timer restarts after every accepted answer and after every warning, and no second timer
+  stacks up (the countdown should decrement once per second, not faster).
+
+### 5. Sound and light
+
+Each of the three events shows a labelled light next to the mic and plays a distinct tone.
+Audio only starts after the first mic press or submitted answer, because the browser requires a
+user gesture.
+
+- Correct answer → green dot, label *Oikein*, pleasant two-note chime.
+- Yellow warning (invalid, duplicate **or** timeout) → yellow dot, label *Keltainen kortti*,
+  short warning tone.
+- Red card → red dot, label *Punainen kortti — pois pelistä*, distinct lower descending tone.
+- With audio unavailable (e.g. block it via devtools), the light still shows and nothing throws.
+
+### 6. Speech
 
 Can't be automated — it needs a real microphone, a real voice, and Google's recognition
 service. Test it by hand, in Chrome, with the actual Finnish words people will say:
@@ -142,7 +171,7 @@ service. Test it by hand, in Chrome, with the actual Finnish words people will s
 - Say something wrong on purpose and check the rejection quotes what was heard, so players can
   tell a genuine mistake from a mis-hearing.
 
-### 5. Admin screen
+### 7. Admin screen
 
 - **The entry button is absent** on a plain load, and appears when you add `#admin` to the URL.
   Clearing the fragment hides it again without a reload.
@@ -154,7 +183,7 @@ service. Test it by hand, in Chrome, with the actual Finnish words people will s
 - **Reload the page — the edit is gone.** That's current expected behaviour, not a bug. See
   [ROADMAP.md](ROADMAP.md), which puts fixing it first.
 
-### 6. Input handling and injection
+### 8. Input handling and injection
 
 - Type an answer and press **Enter** — it submits without touching the OK button.
 - Add players named `Ma"tti` and `<img src=x onerror=alert(1)>`. Both must render as literal
