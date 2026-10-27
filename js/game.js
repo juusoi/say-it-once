@@ -52,6 +52,10 @@ document.getElementById('manual-input').addEventListener('keydown', (e) => {
   if(e.key === 'Enter') submitManual();
 });
 
+// The version is a single constant in js/version.js, shown in the footer so it
+// is visible on every screen. Kept out of game logic entirely.
+document.getElementById('version-line').textContent = `Versio ${APP_VERSION}`;
+
 // Run on load as well as at game start: the setup screen is the one place where
 // "your browser has no speech recognition" is useful before anyone commits to a game.
 checkSpeechSupport();
