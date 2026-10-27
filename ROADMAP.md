@@ -157,7 +157,7 @@ Not urgent, mostly not user-visible, listed so it isn't rediscovered from scratc
   `issueWarning()` → `nextTurn()` → `startTimer()` increments it a second time.
 - **Convert the inline `onclick=` attributes to `addEventListener`.** This one now has a
   concrete payoff rather than being taste: the deployed CSP needs
-  `script-src 'unsafe-inline'` for those ~12 attributes, which makes it close to useless
+  `script-src 'unsafe-inline'` for those 9 attributes, which makes it close to useless
   against XSS. Converting them lets it drop to `script-src 'self'`. It does **not** require
   modules and so does not threaten the `file://` workflow — constraint 1 in the README is
   about `type="module"`, not about `addEventListener`. Low stakes either way (no backend, no
